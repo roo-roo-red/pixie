@@ -21,7 +21,7 @@ import {
   playWinSound,
 } from "@/lib/sounds";
 import {
-  AreaId, Direction, Fairy, GameEvent, MinionDefinition, MinionState,
+  AreaId, Direction, Fairy, GameEvent, HazardTile, MinionDefinition, MinionState,
   Point, PowerId, PowerState, Screen,
 } from "@/types/game";
 
@@ -68,6 +68,23 @@ function manhattan(a: Point, b: Point) {
 function isWalkable(p: Point, world: { width: number; height: number; walls: Point[] }) {
   if (p.x < 0 || p.x >= world.width || p.y < 0 || p.y >= world.height) return false;
   return !world.walls.some((w) => w.x === p.x && w.y === p.y);
+}
+
+function isHazardActive(hazard: HazardTile, now: number): boolean {
+  if (!hazard.cycleSec) return true; // always active if no cycle
+  const cycleMs = hazard.cycleSec * 1000;
+  const offset = (hazard.phaseOffset ?? 0) * cycleMs;
+  const phase = ((now + offset) % cycleMs) / cycleMs;
+  return phase < 0.5; // active first half of cycle, safe second half
+}
+
+function getHazardAt(hazards: HazardTile[], pos: Point, now: number): HazardTile | null {
+  for (const h of hazards) {
+    if (h.position.x === pos.x && h.position.y === pos.y && isHazardActive(h, now)) {
+      return h;
+    }
+  }
+  return null;
 }
 
 function createMinionStates(defs: MinionDefinition[]): MinionState[] {
@@ -341,6 +358,57 @@ export default function Home() {
         }
       }
 
+      // Check hazard tile damage (only if not already hit by minion)
+      if (!hitByMinion && tickNow >= nextDamageAtRef.current) {
+        const hazard = getHazardAt(world.hazards, playerPosRef.current, tickNow);
+        if (hazard) {
+          // Check if player has immunity via active power
+          const ap = activePowerRef.current;
+          let immune = false;
+          if (ap === hazard.immunePower) {
+            const resolved = resolvePowerState(powersRef.current[ap], tickNow);
+            if (resolved.activeUntil && resolved.activeUntil > tickNow) {
+              immune = true;
+            }
+          }
+
+          if (!immune) {
+            const updatedHealth = Math.max(0, playerHealthRef.current - 1);
+            nextDamageAtRef.current = tickNow + MINION_HIT_COOLDOWN_MS;
+            setNextDamageAt(tickNow + MINION_HIT_COOLDOWN_MS);
+            setPlayerPosition(world.start);
+            playerPosRef.current = world.start;
+            setPlayerHealth(updatedHealth);
+            playerHealthRef.current = updatedHealth;
+
+            playDamageSound();
+            setDamageFlash(true);
+            setTimeout(() => setDamageFlash(false), 400);
+
+            const hazardNames: Record<string, string> = {
+              lava: "Lava", poison: "Poison", thorns: "Thorns", spikes: "Spikes",
+            };
+            const name = hazardNames[hazard.type] ?? "Hazard";
+            setGameEvents((prev) => [...prev.slice(-4), {
+              id: ++eventIdCounter,
+              type: "damage" as const,
+              text: `-1 ${name}`,
+              color: hazard.type === "lava" ? "#ff6b35" : hazard.type === "poison" ? "#39ff14" : "#ff3333",
+              timestamp: tickNow,
+            }]);
+
+            if (updatedHealth <= 0) {
+              setScreen("lose");
+              screenRef.current = "lose";
+              playLoseSound();
+              setStatusMessage("Your fairy fell in battle. The witch's minions won this round.");
+            } else {
+              setStatusMessage(`${name} burned you! (${updatedHealth}/${MAX_HEALTH})`);
+            }
+          }
+        }
+      }
+
       setMinionStates(updatedMinions);
       minionStatesRef.current = updatedMinions;
     }, GAME_TICK_MS);
@@ -592,6 +660,22 @@ export default function Home() {
               );
               return;
             }
+          }
+        }
+
+        // Check hazard tile on move
+        const hazard = getHazardAt(world.hazards, target, Date.now());
+        if (hazard) {
+          const immune = effectiveActivePower === hazard.immunePower;
+          if (!immune) {
+            const hazardNames: Record<string, string> = {
+              lava: "Lava", poison: "Poison", thorns: "Thorns", spikes: "Spikes",
+            };
+            handleMinionHit(
+              `${hazardNames[hazard.type]} hurt you!`,
+              currentArea.id,
+            );
+            return;
           }
         }
 

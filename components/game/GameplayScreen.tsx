@@ -169,6 +169,7 @@ export function GameplayScreen({
           isDashing={dashSecondsLeft > 0}
           lastMoveDirection={lastMoveDirection}
           minionStates={minionStates}
+          now={now}
         />
       </div>
 

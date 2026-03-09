@@ -57,6 +57,7 @@ export interface AreaWorld {
   exit?: Point;
   goal?: Point;
   walls: Point[];
+  hazards: HazardTile[];
   petalNodes: Record<PowerId, Point | null>;
   obstacleNodes: Record<string, Point | null>;
 }
@@ -67,6 +68,18 @@ export interface GameEvent {
   text: string;
   color: string;
   timestamp: number;
+}
+
+// ── Environmental hazards ──
+
+export type HazardType = "lava" | "poison" | "thorns" | "spikes";
+
+export interface HazardTile {
+  position: Point;
+  type: HazardType;
+  immunePower: PowerId;       // power that grants immunity
+  cycleSec?: number;          // if set, hazard toggles on/off (seconds per cycle)
+  phaseOffset?: number;       // offset within cycle (0-1)
 }
 
 // ── Minion system ──

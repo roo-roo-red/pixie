@@ -1,4 +1,4 @@
-import { AreaId, AreaWorld } from "@/types/game";
+import { AreaId, AreaWorld, HazardTile } from "@/types/game";
 
 const emptyObstacleNodes = {
   "thorn-gate": null,
@@ -19,6 +19,11 @@ export const WORLD_MAP: Record<AreaId, AreaWorld> = {
       { x: 4, y: 5 },
       { x: 4, y: 6 },
       { x: 5, y: 1 },
+    ],
+    hazards: [
+      // Thorny patches blocking the shortcut route
+      { position: { x: 3, y: 3 }, type: "thorns", immunePower: "ice" },
+      { position: { x: 3, y: 5 }, type: "thorns", immunePower: "ice" },
     ],
     petalNodes: {
       ice: { x: 1, y: 1 },
@@ -44,6 +49,15 @@ export const WORLD_MAP: Record<AreaId, AreaWorld> = {
       { x: 5, y: 6 },
       { x: 6, y: 6 },
     ],
+    hazards: [
+      // Lava vents along the river — need water power to cross safely
+      { position: { x: 4, y: 3 }, type: "lava", immunePower: "water" },
+      { position: { x: 4, y: 4 }, type: "lava", immunePower: "water" },
+      { position: { x: 4, y: 5 }, type: "lava", immunePower: "water" },
+      // Steam vent that cycles on/off
+      { position: { x: 6, y: 3 }, type: "lava", immunePower: "fire", cycleSec: 3, phaseOffset: 0 },
+      { position: { x: 6, y: 5 }, type: "lava", immunePower: "fire", cycleSec: 3, phaseOffset: 0.5 },
+    ],
     petalNodes: {
       ice: null,
       fire: { x: 1, y: 6 },
@@ -68,6 +82,14 @@ export const WORLD_MAP: Record<AreaId, AreaWorld> = {
       { x: 5, y: 2 },
       { x: 5, y: 5 },
     ],
+    hazards: [
+      // Poison fog patches — need animalTalk to sense safe path
+      { position: { x: 3, y: 3 }, type: "poison", immunePower: "animalTalk" },
+      { position: { x: 3, y: 4 }, type: "poison", immunePower: "animalTalk" },
+      { position: { x: 4, y: 3 }, type: "poison", immunePower: "animalTalk" },
+      { position: { x: 6, y: 3 }, type: "poison", immunePower: "animalTalk" },
+      { position: { x: 6, y: 5 }, type: "poison", immunePower: "animalTalk" },
+    ],
     petalNodes: {
       ice: null,
       fire: null,
@@ -90,6 +112,15 @@ export const WORLD_MAP: Record<AreaId, AreaWorld> = {
       { x: 3, y: 2 },
       { x: 3, y: 5 },
       { x: 3, y: 6 },
+    ],
+    hazards: [
+      // Spike corridor — timed traps that cycle, must time your run
+      { position: { x: 4, y: 3 }, type: "spikes", immunePower: "ice", cycleSec: 2, phaseOffset: 0 },
+      { position: { x: 4, y: 4 }, type: "spikes", immunePower: "ice", cycleSec: 2, phaseOffset: 0.5 },
+      { position: { x: 4, y: 5 }, type: "spikes", immunePower: "ice", cycleSec: 2, phaseOffset: 0 },
+      { position: { x: 5, y: 3 }, type: "spikes", immunePower: "fire", cycleSec: 2.5, phaseOffset: 0.25 },
+      { position: { x: 5, y: 4 }, type: "spikes", immunePower: "fire", cycleSec: 2.5, phaseOffset: 0.75 },
+      { position: { x: 5, y: 5 }, type: "spikes", immunePower: "fire", cycleSec: 2.5, phaseOffset: 0.25 },
     ],
     petalNodes: {
       ice: null,

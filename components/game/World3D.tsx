@@ -5,7 +5,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Float, Sparkles, Stars, Trail } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
-import { Area, AreaWorld, Direction, MinionState, Point, PowerId } from "@/types/game";
+import { Area, AreaWorld, Direction, HazardTile, MinionState, Point, PowerId } from "@/types/game";
 import { getMinionsForArea } from "@/lib/game-data";
 
 interface World3DProps {
@@ -20,6 +20,7 @@ interface World3DProps {
   isDashing: boolean;
   lastMoveDirection: Direction;
   minionStates: MinionState[];
+  now: number;
 }
 
 const AREA_THEMES: Record<string, {
@@ -486,6 +487,147 @@ function PortalRing({
   );
 }
 
+/* ── Hazard visual components ── */
+
+const HAZARD_VISUALS: Record<string, { color: string; emissive: string; particle: string }> = {
+  lava: { color: "#ff4400", emissive: "#ff2200", particle: "#ff6b35" },
+  poison: { color: "#22cc44", emissive: "#11aa22", particle: "#39ff14" },
+  thorns: { color: "#886633", emissive: "#554422", particle: "#ff69b4" },
+  spikes: { color: "#888899", emissive: "#6666aa", particle: "#aaaaff" },
+};
+
+function isHazardActiveVisual(hazard: HazardTile, now: number): boolean {
+  if (!hazard.cycleSec) return true;
+  const cycleMs = hazard.cycleSec * 1000;
+  const offset = (hazard.phaseOffset ?? 0) * cycleMs;
+  const phase = ((now + offset) % cycleMs) / cycleMs;
+  return phase < 0.5;
+}
+
+function HazardMesh({
+  hazard,
+  gridWidth,
+  gridHeight,
+  now,
+}: {
+  hazard: HazardTile;
+  gridWidth: number;
+  gridHeight: number;
+  now: number;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const vis = HAZARD_VISUALS[hazard.type] ?? HAZARD_VISUALS.lava;
+  const active = isHazardActiveVisual(hazard, now);
+  const world = toWorld(hazard.position, gridWidth, gridHeight);
+
+  useFrame((state) => {
+    if (!groupRef.current) return;
+    const t = state.clock.elapsedTime;
+    // Pulse when active
+    if (active) {
+      groupRef.current.scale.y = 1 + Math.sin(t * 6) * 0.15;
+    } else {
+      groupRef.current.scale.y = THREE.MathUtils.lerp(groupRef.current.scale.y, 0.2, 0.1);
+    }
+  });
+
+  if (hazard.type === "lava") {
+    return (
+      <group ref={groupRef} position={[world.x, 0.02, world.z]}>
+        {/* Lava pool */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.4, 16]} />
+          <meshStandardMaterial
+            color={active ? vis.color : "#331100"}
+            emissive={active ? vis.emissive : "#110000"}
+            emissiveIntensity={active ? 2 : 0.2}
+            toneMapped={false}
+          />
+        </mesh>
+        {active && (
+          <>
+            <Sparkles count={6} size={1.5} scale={0.6} speed={1.5} color={vis.particle} position={[0, 0.2, 0]} />
+            <pointLight color={vis.emissive} intensity={1} distance={2} decay={2} position={[0, 0.3, 0]} />
+          </>
+        )}
+      </group>
+    );
+  }
+
+  if (hazard.type === "poison") {
+    return (
+      <group ref={groupRef} position={[world.x, 0.02, world.z]}>
+        {/* Poison fog cloud */}
+        <mesh position={[0, active ? 0.25 : 0.05, 0]}>
+          <sphereGeometry args={[0.32, 10, 10]} />
+          <meshStandardMaterial
+            color={active ? vis.color : "#113311"}
+            emissive={active ? vis.emissive : "#001100"}
+            emissiveIntensity={active ? 1.2 : 0.1}
+            transparent
+            opacity={active ? 0.45 : 0.1}
+            toneMapped={false}
+          />
+        </mesh>
+        {active && (
+          <Sparkles count={4} size={1.2} scale={0.5} speed={0.4} color={vis.particle} position={[0, 0.3, 0]} />
+        )}
+      </group>
+    );
+  }
+
+  if (hazard.type === "thorns") {
+    return (
+      <group ref={groupRef} position={[world.x, 0.02, world.z]}>
+        {/* Thorn spikes */}
+        {[-0.15, 0, 0.15].map((offset, i) => (
+          <mesh key={i} position={[offset, active ? 0.18 : 0.05, offset * 0.5]}>
+            <coneGeometry args={[0.06, active ? 0.3 : 0.08, 5]} />
+            <meshStandardMaterial
+              color={vis.color}
+              emissive={active ? vis.emissive : "#221100"}
+              emissiveIntensity={active ? 0.8 : 0.1}
+              toneMapped={false}
+            />
+          </mesh>
+        ))}
+        {active && (
+          <pointLight color="#ff69b4" intensity={0.5} distance={1.5} decay={2} position={[0, 0.3, 0]} />
+        )}
+      </group>
+    );
+  }
+
+  // spikes
+  return (
+    <group ref={groupRef} position={[world.x, 0.02, world.z]}>
+      {/* Metal spike grid */}
+      {[
+        [-0.15, -0.15], [0.15, -0.15], [0, 0],
+        [-0.15, 0.15], [0.15, 0.15],
+      ].map(([ox, oz], i) => (
+        <mesh key={i} position={[ox, active ? 0.2 : 0.02, oz]}>
+          <coneGeometry args={[0.04, active ? 0.35 : 0.04, 4]} />
+          <meshStandardMaterial
+            color={vis.color}
+            emissive={active ? vis.emissive : "#222233"}
+            emissiveIntensity={active ? 1.5 : 0.1}
+            metalness={0.8}
+            roughness={0.2}
+            toneMapped={false}
+          />
+        </mesh>
+      ))}
+      {active && (
+        <>
+          <Sparkles count={3} size={1} scale={0.4} speed={2} color={vis.particle} position={[0, 0.3, 0]} />
+          <pointLight color={vis.emissive} intensity={0.8} distance={1.5} decay={2} position={[0, 0.3, 0]} />
+        </>
+      )}
+    </group>
+  );
+}
+
 /* ── Minion visual components ── */
 
 const MINION_COLORS: Record<string, { body: string; emissive: string; eye: string }> = {
@@ -652,6 +794,7 @@ export function World3D({
   isDashing,
   lastMoveDirection,
   minionStates,
+  now,
 }: World3DProps) {
   const theme = AREA_THEMES[area.id] ?? AREA_THEMES["flower-forest"];
   const wallSet = new Set(areaWorld.walls.map(pointKey));
@@ -813,6 +956,18 @@ export function World3D({
         </mesh>
 
         {tileMeshes}
+
+        {/* Hazard tiles */}
+        {areaWorld.hazards.map((h, i) => (
+          <HazardMesh
+            key={`hazard-${i}`}
+            hazard={h}
+            gridWidth={areaWorld.width}
+            gridHeight={areaWorld.height}
+            now={now}
+          />
+        ))}
+
         <FairyOrb target={playerTarget} lastMoveDirection={lastMoveDirection} />
 
         {/* Minions */}
