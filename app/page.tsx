@@ -529,38 +529,57 @@ export default function Home() {
 
   return (
     <main className="relative h-dvh w-full overflow-hidden">
-      {screen === "landing" && <LandingScreen onStart={() => { playButtonClick(); setScreen("select"); }} />}
-
-      {screen === "select" && <FairySelection onBack={() => { playButtonClick(); setScreen("landing"); }} onSelect={handleFairySelect} />}
-
-      {screen === "playing" && selectedFairy && (
-        <GameplayScreen
-          selectedFairy={selectedFairy}
-          areaIndex={areaIndex}
-          playerPosition={playerPosition}
-          resolvedObstacleNodes={resolvedObstacleNodes}
-          collectedPetals={collectedPetals}
-          powers={powers}
-          activePower={effectiveActivePower}
-          obstaclesCleared={obstaclesCleared}
-          now={now}
-          playerHealth={playerHealth}
-          maxHealth={MAX_HEALTH}
-          dashSecondsLeft={dashSecondsLeft}
-          lastMoveDirection={lastMoveDirection}
-          statusMessage={statusMessage}
-          onActivatePower={handleActivatePower}
-          onStartRecharge={handleStartRecharge}
-          onMove={handleMove}
-          onDash={handleDash}
-          onRestart={resetGame}
-          gameEvents={gameEvents}
-          damageFlash={damageFlash}
-        />
+      {screen === "landing" && (
+        <div key="landing" className="animate-screen-enter">
+          <LandingScreen onStart={() => { playButtonClick(); setScreen("select"); }} />
+        </div>
       )}
 
-      {screen === "win" && <WinScreen onPlayAgain={resetGame} />}
-      {screen === "lose" && <LoseScreen onTryAgain={resetGame} />}
+      {screen === "select" && (
+        <div key="select" className="animate-screen-enter">
+          <FairySelection onBack={() => { playButtonClick(); setScreen("landing"); }} onSelect={handleFairySelect} />
+        </div>
+      )}
+
+      {screen === "playing" && selectedFairy && (
+        <div key="playing" className="animate-screen-enter">
+          <GameplayScreen
+            selectedFairy={selectedFairy}
+            areaIndex={areaIndex}
+            playerPosition={playerPosition}
+            resolvedObstacleNodes={resolvedObstacleNodes}
+            collectedPetals={collectedPetals}
+            powers={powers}
+            activePower={effectiveActivePower}
+            obstaclesCleared={obstaclesCleared}
+            now={now}
+            playerHealth={playerHealth}
+            maxHealth={MAX_HEALTH}
+            dashSecondsLeft={dashSecondsLeft}
+            lastMoveDirection={lastMoveDirection}
+            statusMessage={statusMessage}
+            onActivatePower={handleActivatePower}
+            onStartRecharge={handleStartRecharge}
+            onMove={handleMove}
+            onDash={handleDash}
+            onRestart={resetGame}
+            gameEvents={gameEvents}
+            damageFlash={damageFlash}
+          />
+        </div>
+      )}
+
+      {screen === "win" && (
+        <div key="win" className="animate-screen-enter">
+          <WinScreen onPlayAgain={resetGame} />
+        </div>
+      )}
+
+      {screen === "lose" && (
+        <div key="lose" className="animate-screen-enter">
+          <LoseScreen onTryAgain={resetGame} />
+        </div>
+      )}
     </main>
   );
 }
