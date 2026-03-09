@@ -125,8 +125,8 @@ export const POWER_ORDER: PowerId[] = ["ice", "fire", "water", "animalTalk"];
 
 export const POWER_CONFIG = {
   maxEnergy: 1,
-  activeMs: 4000,
-  rechargeMs: 30000,
+  activeMs: 5000,
+  rechargeMs: 10000,
 };
 
 // ── Minion definitions per area ──

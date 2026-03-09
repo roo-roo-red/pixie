@@ -509,7 +509,7 @@ export default function Home() {
     });
 
     setActivePower(powerId);
-    setStatusMessage(`${powerName} activated for 4s! Run through obstacles now.`);
+    setStatusMessage(`${powerName} activated for ${POWER_CONFIG.activeMs / 1000}s! Run through obstacles now.`);
   };
 
   const handleStartRecharge = (powerId: PowerId) => {
@@ -544,7 +544,7 @@ export default function Home() {
       };
     });
 
-    setStatusMessage(`${powerName} recharging (30s).`);
+    setStatusMessage(`${powerName} recharging (${POWER_CONFIG.rechargeMs / 1000}s).`);
   };
 
   const handleMinionHit = useCallback(

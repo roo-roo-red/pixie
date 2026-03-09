@@ -31,62 +31,87 @@ interface GameplayScreenProps {
   minionStates: MinionState[];
 }
 
-function HeartBar({ health, maxHealth }: { health: number; maxHealth: number }) {
+const AREA_ACCENT: Record<string, { color: string; glow: string; gradient: string }> = {
+  "flower-forest": { color: "#ff69b4", glow: "rgba(255,105,180,0.3)", gradient: "from-pink-500/20 to-fuchsia-500/20" },
+  "crystal-river": { color: "#00d4ff", glow: "rgba(0,212,255,0.3)", gradient: "from-cyan-500/20 to-blue-500/20" },
+  "shadow-path": { color: "#b845ff", glow: "rgba(184,69,255,0.3)", gradient: "from-purple-500/20 to-indigo-500/20" },
+  "pixie-land": { color: "#ffd700", glow: "rgba(255,215,0,0.3)", gradient: "from-yellow-500/20 to-orange-500/20" },
+};
+
+function HealthBar({ health, maxHealth, accentColor }: { health: number; maxHealth: number; accentColor: string }) {
+  const pct = (health / maxHealth) * 100;
+  const barColor = health === 1 ? "#ff3333" : health === 2 ? "#ffaa00" : accentColor;
+
   return (
-    <div className="flex gap-1.5">
-      {Array.from({ length: maxHealth }).map((_, i) => (
-        <span
-          key={i}
-          className={`text-2xl transition-transform duration-200 ${
-            i < health ? "drop-shadow-[0_0_6px_rgba(255,45,100,0.7)]" : "opacity-30 grayscale"
-          } ${i === health ? "animate-shake" : ""}`}
-        >
-          {i < health ? "\u2764\uFE0F" : "\u{1F5A4}"}
-        </span>
-      ))}
+    <div className="flex items-center gap-2">
+      <div className="relative h-4 w-28 overflow-hidden rounded-full" style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.1)" }}>
+        <div
+          className="absolute inset-y-0 left-0 rounded-full transition-all duration-500 ease-out"
+          style={{
+            width: `${pct}%`,
+            background: `linear-gradient(90deg, ${barColor}cc, ${barColor})`,
+            boxShadow: `0 0 12px ${barColor}80, inset 0 1px 0 rgba(255,255,255,0.3)`,
+          }}
+        />
+        {/* Shine effect */}
+        <div className="absolute inset-0 rounded-full animate-shimmer" />
+      </div>
+      <span className="text-xs font-black tabular-nums" style={{ color: barColor, textShadow: `0 0 8px ${barColor}60` }}>
+        {health}/{maxHealth}
+      </span>
     </div>
   );
 }
 
 function PetalCounter({ collected }: { collected: Set<PowerId> }) {
-  const petals: { id: PowerId; color: string; label: string }[] = [
-    { id: "ice", color: "#00d4ff", label: "Ice" },
-    { id: "fire", color: "#ff6b35", label: "Fire" },
-    { id: "water", color: "#4d7cff", label: "Water" },
-    { id: "animalTalk", color: "#39ff14", label: "Animal" },
+  const petals: { id: PowerId; color: string; icon: string }[] = [
+    { id: "ice", color: "#00d4ff", icon: "\u2744\uFE0F" },
+    { id: "fire", color: "#ff6b35", icon: "\uD83D\uDD25" },
+    { id: "water", color: "#4d7cff", icon: "\uD83D\uDCA7" },
+    { id: "animalTalk", color: "#39ff14", icon: "\uD83D\uDC3E" },
   ];
 
   return (
-    <div className="flex gap-2">
-      {petals.map((p) => (
-        <div
-          key={p.id}
-          className="flex h-8 w-8 items-center justify-center rounded-full border-2 transition-all duration-300"
-          style={{
-            borderColor: collected.has(p.id) ? p.color : "rgba(255,255,255,0.15)",
-            background: collected.has(p.id) ? `${p.color}30` : "rgba(0,0,0,0.3)",
-            boxShadow: collected.has(p.id) ? `0 0 10px ${p.color}50` : "none",
-          }}
-          title={p.label}
-        >
-          {collected.has(p.id) && (
-            <div
-              className="h-3 w-3 rounded-full animate-pulse-glow"
-              style={{ background: p.color }}
-            />
-          )}
-        </div>
-      ))}
+    <div className="flex gap-1.5">
+      {petals.map((p) => {
+        const has = collected.has(p.id);
+        return (
+          <div
+            key={p.id}
+            className="relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-300"
+            style={{
+              background: has ? `${p.color}20` : "rgba(0,0,0,0.4)",
+              border: `2px solid ${has ? p.color : "rgba(255,255,255,0.08)"}`,
+              boxShadow: has ? `0 0 12px ${p.color}40, inset 0 0 8px ${p.color}15` : "none",
+            }}
+          >
+            <span className={`text-sm ${has ? "" : "opacity-20 grayscale"}`}>{p.icon}</span>
+            {has && (
+              <div
+                className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full animate-pulse-glow"
+                style={{ background: p.color, boxShadow: `0 0 6px ${p.color}` }}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function StatusToast({ message }: { message: string }) {
+function StatusToast({ message, accentColor }: { message: string; accentColor: string }) {
+  if (!message) return null;
   return (
     <div
       key={message}
-      className="glass-panel animate-toast px-4 py-2 text-sm font-semibold text-white/90"
-      style={{ maxWidth: "400px" }}
+      className="animate-toast rounded-xl px-5 py-2.5 text-sm font-bold text-white/95"
+      style={{
+        background: "rgba(10, 10, 30, 0.75)",
+        backdropFilter: "blur(16px)",
+        border: `1px solid ${accentColor}40`,
+        boxShadow: `0 4px 24px rgba(0,0,0,0.5), 0 0 20px ${accentColor}15`,
+        maxWidth: "420px",
+      }}
     >
       {message}
     </div>
@@ -102,10 +127,11 @@ function FloatingEvents({ events }: { events: GameEvent[] }) {
           className="absolute animate-float-up text-center font-black"
           style={{
             color: event.color,
-            fontSize: event.type === "damage" ? "2.5rem" : "1.25rem",
-            textShadow: `0 0 10px ${event.color}, 0 0 20px ${event.color}50`,
+            fontSize: event.type === "damage" ? "3rem" : "1.4rem",
+            textShadow: `0 0 15px ${event.color}, 0 0 30px ${event.color}60, 0 2px 4px rgba(0,0,0,0.5)`,
             bottom: `${55 + index * 8}%`,
             animationDelay: `${index * 50}ms`,
+            letterSpacing: "0.05em",
           }}
         >
           {event.text}
@@ -121,9 +147,98 @@ function DamageFlash({ active }: { active: boolean }) {
     <div
       className="pointer-events-none absolute inset-0 z-30 animate-damage-flash"
       style={{
-        background: "radial-gradient(ellipse at center, transparent 30%, rgba(255,0,0,0.35) 100%)",
+        background: "radial-gradient(ellipse at center, transparent 30%, rgba(255,0,0,0.4) 100%)",
       }}
     />
+  );
+}
+
+function AreaBanner({ name, subtitle, accent }: { name: string; subtitle: string; accent: { color: string; glow: string } }) {
+  return (
+    <div
+      className="rounded-xl px-6 py-2 text-center"
+      style={{
+        background: "rgba(10, 10, 30, 0.65)",
+        backdropFilter: "blur(16px)",
+        border: `1px solid ${accent.color}30`,
+        boxShadow: `0 4px 20px rgba(0,0,0,0.4), 0 0 30px ${accent.glow}`,
+      }}
+    >
+      <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: `${accent.color}99` }}>
+        {subtitle}
+      </p>
+      <h2 className="text-lg font-black" style={{ color: accent.color, textShadow: `0 0 20px ${accent.glow}` }}>
+        {name}
+      </h2>
+    </div>
+  );
+}
+
+function DashButton({ dashSecondsLeft, onDash }: { dashSecondsLeft: number; onDash: () => void }) {
+  const ready = dashSecondsLeft <= 0;
+  return (
+    <button
+      type="button"
+      onClick={onDash}
+      disabled={!ready}
+      className="group relative flex h-[68px] w-[68px] items-center justify-center rounded-2xl font-black text-white transition-all duration-200 enabled:hover:scale-110 enabled:active:scale-95"
+      style={{
+        background: ready
+          ? "linear-gradient(135deg, rgba(0,212,255,0.25), rgba(0,100,200,0.25))"
+          : "rgba(0,0,0,0.4)",
+        border: `2px solid ${ready ? "rgba(0,212,255,0.7)" : "rgba(255,255,255,0.1)"}`,
+        boxShadow: ready
+          ? "0 0 25px rgba(0,212,255,0.35), inset 0 0 15px rgba(0,212,255,0.1)"
+          : "none",
+      }}
+    >
+      {ready ? (
+        <div className="flex flex-col items-center">
+          <span className="text-lg leading-none" style={{ color: "#00d4ff" }}>&#9889;</span>
+          <span className="text-[9px] uppercase tracking-wider" style={{ color: "#00d4ff" }}>Dash</span>
+        </div>
+      ) : (
+        <span className="text-xl tabular-nums text-white/50">{dashSecondsLeft}</span>
+      )}
+      {/* Cooldown ring */}
+      <svg className="absolute inset-0 -rotate-90" viewBox="0 0 68 68">
+        <circle cx="34" cy="34" r="30" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="2.5" />
+        <circle
+          cx="34"
+          cy="34"
+          r="30"
+          fill="none"
+          stroke={ready ? "rgba(0,212,255,0.6)" : "rgba(0,212,255,0.2)"}
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray={`${(ready ? 1 : 1 - dashSecondsLeft / 5) * 188.5} 188.5`}
+          style={{ transition: "stroke-dasharray 1s linear" }}
+        />
+      </svg>
+    </button>
+  );
+}
+
+function DPad({ onMove }: { onMove: (dir: Direction) => void }) {
+  const btnClass = "flex h-12 w-12 items-center justify-center rounded-xl text-lg text-white/80 active:scale-90 transition-transform";
+  const btnStyle = {
+    background: "rgba(10, 10, 30, 0.7)",
+    backdropFilter: "blur(8px)",
+    border: "1px solid rgba(255,255,255,0.12)",
+  };
+
+  return (
+    <div className="grid grid-cols-3 gap-1.5">
+      <div />
+      <button type="button" onClick={() => onMove("up")} className={btnClass} style={btnStyle}>&#9650;</button>
+      <div />
+      <button type="button" onClick={() => onMove("left")} className={btnClass} style={btnStyle}>&#9664;</button>
+      <div />
+      <button type="button" onClick={() => onMove("right")} className={btnClass} style={btnStyle}>&#9654;</button>
+      <div />
+      <button type="button" onClick={() => onMove("down")} className={btnClass} style={btnStyle}>&#9660;</button>
+      <div />
+    </div>
   );
 }
 
@@ -152,6 +267,7 @@ export function GameplayScreen({
   minionStates,
 }: GameplayScreenProps) {
   const currentArea = AREAS[areaIndex];
+  const accent = AREA_ACCENT[currentArea.id] ?? AREA_ACCENT["flower-forest"];
 
   return (
     <div className="relative h-dvh w-full">
@@ -181,13 +297,23 @@ export function GameplayScreen({
 
       {/* ── HUD Overlay ── */}
 
-      {/* Top-left: Hearts + Fairy badge */}
-      <div className="absolute top-4 left-4 z-10 flex items-center gap-3">
-        <div className="glass-panel flex items-center gap-3 px-3 py-2">
-          <HeartBar health={playerHealth} maxHealth={maxHealth} />
-          <div className="h-6 w-px bg-white/20" />
+      {/* Top-left: Health + Fairy badge */}
+      <div className="absolute top-4 left-4 z-10">
+        <div
+          className="flex items-center gap-3 rounded-xl px-4 py-2.5"
+          style={{
+            background: "rgba(10, 10, 30, 0.65)",
+            backdropFilter: "blur(16px)",
+            border: `1px solid ${accent.color}25`,
+            boxShadow: `0 4px 20px rgba(0,0,0,0.4)`,
+          }}
+        >
+          <HealthBar health={playerHealth} maxHealth={maxHealth} accentColor={accent.color} />
+          <div className="h-7 w-px" style={{ background: `${accent.color}30` }} />
           <div>
-            <p className="text-xs font-bold text-white/60">{selectedFairy.title}</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: `${accent.color}80` }}>
+              {selectedFairy.title}
+            </p>
             <p className="text-sm font-black text-white">{selectedFairy.name}</p>
           </div>
         </div>
@@ -195,18 +321,23 @@ export function GameplayScreen({
 
       {/* Top-right: Petal counter */}
       <div className="absolute top-4 right-4 z-10">
-        <div className="glass-panel px-3 py-2">
-          <p className="mb-1 text-center text-[10px] font-bold uppercase tracking-widest text-white/50">Petals</p>
+        <div
+          className="rounded-xl px-3 py-2.5"
+          style={{
+            background: "rgba(10, 10, 30, 0.65)",
+            backdropFilter: "blur(16px)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+          }}
+        >
+          <p className="mb-1.5 text-center text-[9px] font-bold uppercase tracking-[0.2em] text-white/40">Petals</p>
           <PetalCounter collected={collectedPetals} />
         </div>
       </div>
 
       {/* Top-center: Area name */}
       <div className="absolute top-4 left-1/2 z-10 -translate-x-1/2">
-        <div className="glass-panel px-5 py-2 text-center">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">{currentArea.subtitle}</p>
-          <h2 className="text-lg font-black text-white">{currentArea.name}</h2>
-        </div>
+        <AreaBanner name={currentArea.name} subtitle={currentArea.subtitle} accent={accent} />
       </div>
 
       {/* Bottom-center: Power bar */}
@@ -223,65 +354,17 @@ export function GameplayScreen({
 
       {/* Bottom-right: Dash button */}
       <div className="absolute bottom-4 right-4 z-10">
-        <button
-          type="button"
-          onClick={onDash}
-          disabled={dashSecondsLeft > 0}
-          className="relative flex h-16 w-16 items-center justify-center rounded-full border-2 font-black text-white transition-all duration-200 enabled:hover:scale-110 enabled:active:scale-95 disabled:opacity-40"
-          style={{
-            borderColor: dashSecondsLeft > 0 ? "rgba(255,255,255,0.15)" : "var(--neon-blue)",
-            background: dashSecondsLeft > 0 ? "rgba(0,0,0,0.4)" : "rgba(0,212,255,0.2)",
-            boxShadow: dashSecondsLeft > 0 ? "none" : "0 0 20px rgba(0,212,255,0.3)",
-          }}
-        >
-          {dashSecondsLeft > 0 ? (
-            <span className="text-lg">{dashSecondsLeft}</span>
-          ) : (
-            <span className="text-xs">DASH</span>
-          )}
-          {/* Cooldown ring */}
-          {dashSecondsLeft > 0 && (
-            <svg className="absolute inset-0 -rotate-90" viewBox="0 0 64 64">
-              <circle
-                cx="32"
-                cy="32"
-                r="29"
-                fill="none"
-                stroke="rgba(0,212,255,0.3)"
-                strokeWidth="3"
-                strokeDasharray={`${(1 - dashSecondsLeft / 5) * 182} 182`}
-              />
-            </svg>
-          )}
-        </button>
+        <DashButton dashSecondsLeft={dashSecondsLeft} onDash={onDash} />
       </div>
 
       {/* Bottom-left: D-pad for mobile */}
       <div className="absolute bottom-4 left-4 z-10 sm:hidden">
-        <div className="grid grid-cols-3 gap-1">
-          <div />
-          <button type="button" onClick={() => onMove("up")} className="glass-panel flex h-11 w-11 items-center justify-center text-lg text-white/80 active:scale-90">
-            &#9650;
-          </button>
-          <div />
-          <button type="button" onClick={() => onMove("left")} className="glass-panel flex h-11 w-11 items-center justify-center text-lg text-white/80 active:scale-90">
-            &#9664;
-          </button>
-          <div />
-          <button type="button" onClick={() => onMove("right")} className="glass-panel flex h-11 w-11 items-center justify-center text-lg text-white/80 active:scale-90">
-            &#9654;
-          </button>
-          <div />
-          <button type="button" onClick={() => onMove("down")} className="glass-panel flex h-11 w-11 items-center justify-center text-lg text-white/80 active:scale-90">
-            &#9660;
-          </button>
-          <div />
-        </div>
+        <DPad onMove={onMove} />
       </div>
 
       {/* Bottom status toast */}
       <div className="absolute bottom-24 left-1/2 z-10 -translate-x-1/2">
-        <StatusToast message={statusMessage} />
+        <StatusToast message={statusMessage} accentColor={accent.color} />
       </div>
 
       {/* Top-right corner: Restart */}
@@ -289,7 +372,12 @@ export function GameplayScreen({
         <button
           type="button"
           onClick={onRestart}
-          className="glass-panel px-3 py-1.5 text-xs font-bold text-white/60 transition hover:text-white"
+          className="rounded-lg px-3 py-1.5 text-xs font-bold text-white/50 transition-all hover:text-white/90"
+          style={{
+            background: "rgba(10, 10, 30, 0.5)",
+            backdropFilter: "blur(8px)",
+            border: "1px solid rgba(255,255,255,0.06)",
+          }}
         >
           Restart
         </button>
