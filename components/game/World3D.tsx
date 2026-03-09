@@ -5,7 +5,8 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Float, Sparkles, Stars, Trail } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
-import { Area, AreaWorld, Direction, Point, PowerId } from "@/types/game";
+import { Area, AreaWorld, Direction, MinionState, Point, PowerId } from "@/types/game";
+import { getMinionsForArea } from "@/lib/game-data";
 
 interface World3DProps {
   area: Area;
@@ -18,6 +19,7 @@ interface World3DProps {
   playerHealth: number;
   isDashing: boolean;
   lastMoveDirection: Direction;
+  minionStates: MinionState[];
 }
 
 const AREA_THEMES: Record<string, {
@@ -484,6 +486,158 @@ function PortalRing({
   );
 }
 
+/* ── Minion visual components ── */
+
+const MINION_COLORS: Record<string, { body: string; emissive: string; eye: string }> = {
+  imp: { body: "#ef4444", emissive: "#ff2222", eye: "#ffff00" },
+  wisp: { body: "#a855f7", emissive: "#7c3aed", eye: "#e9d5ff" },
+  stalker: { body: "#1e1e1e", emissive: "#ff0044", eye: "#ff0000" },
+  golem: { body: "#78716c", emissive: "#f97316", eye: "#fbbf24" },
+};
+
+function MinionMesh({
+  state,
+  visualType,
+  gridWidth,
+  gridHeight,
+}: {
+  state: MinionState;
+  visualType: string;
+  gridWidth: number;
+  gridHeight: number;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const colors = MINION_COLORS[visualType] ?? MINION_COLORS.imp;
+  const isStunned = state.stunnedUntil > Date.now();
+
+  useFrame((clock) => {
+    if (!groupRef.current) return;
+    const target = toWorld(state.position, gridWidth, gridHeight);
+    groupRef.current.position.x = THREE.MathUtils.lerp(groupRef.current.position.x, target.x, 0.15);
+    groupRef.current.position.z = THREE.MathUtils.lerp(groupRef.current.position.z, target.z, 0.15);
+
+    const t = clock.clock.elapsedTime;
+    // Bobbing
+    const bobHeight = visualType === "wisp" ? 0.5 + Math.sin(t * 3) * 0.12 : 0.35;
+    groupRef.current.position.y = bobHeight;
+
+    // Stunned wobble
+    if (isStunned) {
+      groupRef.current.rotation.z = Math.sin(t * 15) * 0.3;
+    } else {
+      groupRef.current.rotation.z = THREE.MathUtils.lerp(groupRef.current.rotation.z, 0, 0.1);
+    }
+  });
+
+  if (state.defeated) return null;
+
+  if (visualType === "wisp") {
+    return (
+      <group ref={groupRef}>
+        <mesh castShadow>
+          <sphereGeometry args={[0.18, 12, 12]} />
+          <meshStandardMaterial
+            color={isStunned ? "#8888ff" : colors.body}
+            emissive={isStunned ? "#4444ff" : colors.emissive}
+            emissiveIntensity={isStunned ? 0.5 : 2}
+            transparent
+            opacity={isStunned ? 0.4 : 0.75}
+            toneMapped={false}
+          />
+        </mesh>
+        {/* Eye */}
+        <mesh position={[0, 0.04, 0.14]}>
+          <sphereGeometry args={[0.05, 8, 8]} />
+          <meshStandardMaterial
+            color={colors.eye}
+            emissive={colors.eye}
+            emissiveIntensity={isStunned ? 0.3 : 2}
+            toneMapped={false}
+          />
+        </mesh>
+        <Sparkles count={4} size={1} scale={0.4} speed={isStunned ? 0.1 : 0.8} color={isStunned ? "#8888ff" : colors.emissive} />
+        <pointLight color={isStunned ? "#4444ff" : colors.emissive} intensity={isStunned ? 0.3 : 1} distance={2} decay={2} />
+      </group>
+    );
+  }
+
+  if (visualType === "stalker") {
+    return (
+      <group ref={groupRef}>
+        {/* Tall dark body */}
+        <mesh castShadow>
+          <capsuleGeometry args={[0.12, 0.35, 6, 12]} />
+          <meshStandardMaterial
+            color={isStunned ? "#666688" : colors.body}
+            emissive={isStunned ? "#333366" : colors.emissive}
+            emissiveIntensity={isStunned ? 0.3 : 1.5}
+            toneMapped={false}
+          />
+        </mesh>
+        {/* Glowing eyes */}
+        <mesh position={[-0.05, 0.1, 0.1]}>
+          <sphereGeometry args={[0.03, 8, 8]} />
+          <meshStandardMaterial
+            color={colors.eye}
+            emissive={colors.eye}
+            emissiveIntensity={isStunned ? 0.5 : 3}
+            toneMapped={false}
+          />
+        </mesh>
+        <mesh position={[0.05, 0.1, 0.1]}>
+          <sphereGeometry args={[0.03, 8, 8]} />
+          <meshStandardMaterial
+            color={colors.eye}
+            emissive={colors.eye}
+            emissiveIntensity={isStunned ? 0.5 : 3}
+            toneMapped={false}
+          />
+        </mesh>
+        {/* Chase indicator when chasing */}
+        {state.isChasing && !isStunned && (
+          <pointLight color="#ff0000" intensity={2} distance={3} decay={2} />
+        )}
+      </group>
+    );
+  }
+
+  // Default: imp / golem
+  return (
+    <group ref={groupRef}>
+      {/* Cone body */}
+      <mesh castShadow>
+        <coneGeometry args={[0.18, 0.4, 10]} />
+        <meshStandardMaterial
+          color={isStunned ? "#8888aa" : colors.body}
+          emissive={isStunned ? "#444466" : colors.emissive}
+          emissiveIntensity={isStunned ? 0.3 : 1.5}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Eyes */}
+      <mesh position={[-0.05, 0.02, 0.13]}>
+        <sphereGeometry args={[0.035, 8, 8]} />
+        <meshStandardMaterial
+          color={colors.eye}
+          emissive={colors.eye}
+          emissiveIntensity={isStunned ? 0.3 : 2}
+          toneMapped={false}
+        />
+      </mesh>
+      <mesh position={[0.05, 0.02, 0.13]}>
+        <sphereGeometry args={[0.035, 8, 8]} />
+        <meshStandardMaterial
+          color={colors.eye}
+          emissive={colors.eye}
+          emissiveIntensity={isStunned ? 0.3 : 2}
+          toneMapped={false}
+        />
+      </mesh>
+      <pointLight color={isStunned ? "#444466" : colors.emissive} intensity={isStunned ? 0.2 : 0.8} distance={2} decay={2} />
+    </group>
+  );
+}
+
 /* ── Main World3D ── */
 
 export function World3D({
@@ -497,6 +651,7 @@ export function World3D({
   playerHealth,
   isDashing,
   lastMoveDirection,
+  minionStates,
 }: World3DProps) {
   const theme = AREA_THEMES[area.id] ?? AREA_THEMES["flower-forest"];
   const wallSet = new Set(areaWorld.walls.map(pointKey));
@@ -659,6 +814,22 @@ export function World3D({
 
         {tileMeshes}
         <FairyOrb target={playerTarget} lastMoveDirection={lastMoveDirection} />
+
+        {/* Minions */}
+        {minionStates.map((ms) => {
+          const def = getMinionsForArea(area.id).find((d) => d.id === ms.id);
+          if (!def) return null;
+          return (
+            <MinionMesh
+              key={ms.id}
+              state={ms}
+              visualType={def.visualType}
+              gridWidth={areaWorld.width}
+              gridHeight={areaWorld.height}
+            />
+          );
+        })}
+
         <FollowCamera
           target={playerTarget}
           playerHealth={playerHealth}

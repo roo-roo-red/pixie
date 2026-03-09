@@ -68,3 +68,31 @@ export interface GameEvent {
   color: string;
   timestamp: number;
 }
+
+// ── Minion system ──
+
+export type PatrolType = "linear" | "circular" | "chase";
+
+export interface MinionDefinition {
+  id: string;
+  name: string;
+  areaId: AreaId;
+  patrolType: PatrolType;
+  speed: number;            // moves per second
+  waypoints: Point[];       // patrol path
+  chaseRange?: number;      // manhattan distance to start chasing (chase type)
+  requiredPower?: PowerId;  // power that stuns this minion
+  stunDurationMs?: number;  // how long stun lasts
+  visualType: "imp" | "golem" | "wisp" | "stalker";
+}
+
+export interface MinionState {
+  id: string;
+  position: Point;
+  waypointIndex: number;
+  direction: 1 | -1;
+  isChasing: boolean;
+  stunnedUntil: number;
+  defeated: boolean;
+  lastMoveAt: number;
+}

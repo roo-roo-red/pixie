@@ -4,7 +4,7 @@ import { PowerPanel } from "@/components/game/PowerPanel";
 import { World3D } from "@/components/game/World3D";
 import { AREAS } from "@/lib/game-data";
 import { WORLD_MAP } from "@/lib/world-map";
-import { Direction, Fairy, GameEvent, Point, PowerId, PowerState } from "@/types/game";
+import { Direction, Fairy, GameEvent, MinionState, Point, PowerId, PowerState } from "@/types/game";
 
 interface GameplayScreenProps {
   selectedFairy: Fairy;
@@ -28,6 +28,7 @@ interface GameplayScreenProps {
   onRestart: () => void;
   gameEvents: GameEvent[];
   damageFlash: boolean;
+  minionStates: MinionState[];
 }
 
 function HeartBar({ health, maxHealth }: { health: number; maxHealth: number }) {
@@ -148,6 +149,7 @@ export function GameplayScreen({
   onRestart,
   gameEvents,
   damageFlash,
+  minionStates,
 }: GameplayScreenProps) {
   const currentArea = AREAS[areaIndex];
 
@@ -166,6 +168,7 @@ export function GameplayScreen({
           playerHealth={playerHealth}
           isDashing={dashSecondsLeft > 0}
           lastMoveDirection={lastMoveDirection}
+          minionStates={minionStates}
         />
       </div>
 
