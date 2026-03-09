@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FairySelection } from "@/components/game/FairySelection";
 import { GameplayScreen } from "@/components/game/GameplayScreen";
 import { LandingScreen } from "@/components/game/LandingScreen";
@@ -8,11 +8,25 @@ import { LoseScreen } from "@/components/game/LoseScreen";
 import { WinScreen } from "@/components/game/WinScreen";
 import { AREAS, POWER_CONFIG, POWERS } from "@/lib/game-data";
 import { WORLD_MAP } from "@/lib/world-map";
-import { AreaId, Direction, Fairy, Point, PowerId, PowerState, Screen } from "@/types/game";
+import {
+  playButtonClick,
+  playCollectSound,
+  playDamageSound,
+  playDashSound,
+  playLoseSound,
+  playMoveSound,
+  playObstacleClearSound,
+  playPowerActivateSound,
+  playRechargeStartSound,
+  playWinSound,
+} from "@/lib/sounds";
+import { AreaId, Direction, Fairy, GameEvent, Point, PowerId, PowerState, Screen } from "@/types/game";
 
 const DASH_COOLDOWN_MS = 5000;
 const MAX_HEALTH = 3;
 const MINION_HIT_COOLDOWN_MS = 1500;
+
+let eventIdCounter = 0;
 
 function createInitialPowers(): Record<PowerId, PowerState> {
   return {
@@ -71,6 +85,29 @@ export default function Home() {
     "Welcome to Pixie. Gather petals and clear each area to get home.",
   );
   const [now, setNow] = useState(0);
+  const [gameEvents, setGameEvents] = useState<GameEvent[]>([]);
+  const [damageFlash, setDamageFlash] = useState(false);
+  const damageFlashTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const pushEvent = useCallback((type: GameEvent["type"], text: string, color: string) => {
+    const event: GameEvent = {
+      id: ++eventIdCounter,
+      type,
+      text,
+      color,
+      timestamp: Date.now(),
+    };
+    setGameEvents((prev) => [...prev.slice(-4), event]);
+  }, []);
+
+  // Auto-clear old events
+  useEffect(() => {
+    if (gameEvents.length === 0) return;
+    const timer = setTimeout(() => {
+      setGameEvents((prev) => prev.filter((e) => Date.now() - e.timestamp < 2000));
+    }, 2100);
+    return () => clearTimeout(timer);
+  }, [gameEvents]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -100,7 +137,14 @@ export default function Home() {
     return secondsLeft(dashReadyAt, now);
   }, [dashReadyAt, now]);
 
+  const triggerDamageFlash = useCallback(() => {
+    setDamageFlash(true);
+    if (damageFlashTimeout.current) clearTimeout(damageFlashTimeout.current);
+    damageFlashTimeout.current = setTimeout(() => setDamageFlash(false), 400);
+  }, []);
+
   const resetGame = () => {
+    playButtonClick();
     setScreen("landing");
     setSelectedFairy(null);
     setAreaIndex(0);
@@ -113,16 +157,20 @@ export default function Home() {
     setNextDamageAt(0);
     setLastMoveDirection("right");
     setDashReadyAt(0);
+    setDamageFlash(false);
+    setGameEvents([]);
     setStatusMessage("Welcome to Pixie. Gather petals and clear each area to get home.");
   };
 
   const handleFairySelect = (fairy: Fairy) => {
+    playButtonClick();
     setSelectedFairy(fairy);
     setScreen("playing");
     setAreaIndex(0);
     setPlayerPosition(WORLD_MAP["flower-forest"].start);
     setPlayerHealth(MAX_HEALTH);
     setNextDamageAt(0);
+    setGameEvents([]);
     setStatusMessage(`${fairy.name} is ready. Move with arrows/WASD and press Space to dash.`);
   };
 
@@ -149,6 +197,9 @@ export default function Home() {
       setStatusMessage(`${powerName} is empty. Start recharge to restore it.`);
       return;
     }
+
+    playPowerActivateSound();
+    pushEvent("power", `${powerName} Active`, "#b845ff");
 
     setPowers((previous) => {
       const current = resolvePowerState(previous[powerId], now);
@@ -185,6 +236,8 @@ export default function Home() {
       return;
     }
 
+    playRechargeStartSound();
+
     setPowers((previous) => {
       const current = resolvePowerState(previous[powerId], now);
       return {
@@ -212,8 +265,13 @@ export default function Home() {
       setPlayerPosition(respawnWorld.start);
       setPlayerHealth(updatedHealth);
 
+      playDamageSound();
+      triggerDamageFlash();
+      pushEvent("damage", "-1", "#ff3333");
+
       if (updatedHealth <= 0) {
         setScreen("lose");
+        playLoseSound();
         setStatusMessage("Your fairy fell in battle. The witch's minions won this round.");
       } else {
         setStatusMessage(`${messagePrefix} You lost 1 heart (${updatedHealth}/${MAX_HEALTH}).`);
@@ -221,7 +279,7 @@ export default function Home() {
 
       return true;
     },
-    [nextDamageAt, playerHealth],
+    [nextDamageAt, playerHealth, triggerDamageFlash, pushEvent],
   );
 
   const handleMove = useCallback(
@@ -237,8 +295,10 @@ export default function Home() {
       const workingCollected = new Set(collectedPetals);
       const workingCleared = new Set(obstaclesCleared);
       const newlyCollected: PowerId[] = [];
+      const newlyCleared: string[] = [];
       let message = "";
       let reachedWin = false;
+      let enteredNewArea = false;
 
       for (let step = 0; step < steps; step += 1) {
         const currentArea = AREAS[workingAreaIndex];
@@ -289,6 +349,7 @@ export default function Home() {
           }
 
           workingCleared.add(blockingObstacle.id);
+          newlyCleared.push(blockingObstacle.name);
           message = `${blockingObstacle.name} shattered.`;
         }
 
@@ -312,6 +373,7 @@ export default function Home() {
           workingAreaIndex -= 1;
           workingPosition = previousWorld.exit ?? previousWorld.start;
           message = `You returned to ${previousArea.name}.`;
+          enteredNewArea = true;
           break;
         }
 
@@ -333,6 +395,7 @@ export default function Home() {
             workingAreaIndex += 1;
             workingPosition = nextWorld.start;
             message = `You entered ${nextArea.name}.`;
+            enteredNewArea = true;
             break;
           }
         }
@@ -344,12 +407,28 @@ export default function Home() {
         }
       }
 
+      // Play sounds for events
+      if (!fromDash) {
+        playMoveSound();
+      }
+
+      for (const name of newlyCleared) {
+        playObstacleClearSound();
+        pushEvent("clear", `${name} Cleared`, "#ff8800");
+      }
+
       setAreaIndex(workingAreaIndex);
       setPlayerPosition(workingPosition);
       setCollectedPetals(workingCollected);
       setObstaclesCleared(workingCleared);
 
       if (newlyCollected.length > 0) {
+        playCollectSound();
+        for (const powerId of newlyCollected) {
+          const label = POWERS.find((entry) => entry.id === powerId)?.label;
+          pushEvent("collect", `+1 ${label} Petal`, "#ffd700");
+        }
+
         setPowers((previous) => {
           const next = { ...previous };
           for (const powerId of newlyCollected) {
@@ -364,8 +443,13 @@ export default function Home() {
         });
       }
 
+      if (enteredNewArea) {
+        pushEvent("area", `${AREAS[workingAreaIndex].name}`, "#00d4ff");
+      }
+
       if (reachedWin) {
         setScreen("win");
+        playWinSound();
       }
 
       if (fromDash && !message) {
@@ -382,6 +466,7 @@ export default function Home() {
       now,
       obstaclesCleared,
       playerPosition,
+      pushEvent,
       screen,
     ],
   );
@@ -397,6 +482,7 @@ export default function Home() {
       return;
     }
 
+    playDashSound();
     setDashReadyAt(currentTime + DASH_COOLDOWN_MS);
     handleMove(lastMoveDirection, 2, true);
   }, [dashReadyAt, handleMove, lastMoveDirection, screen]);
@@ -443,9 +529,9 @@ export default function Home() {
 
   return (
     <main className="relative h-dvh w-full overflow-hidden">
-      {screen === "landing" && <LandingScreen onStart={() => setScreen("select")} />}
+      {screen === "landing" && <LandingScreen onStart={() => { playButtonClick(); setScreen("select"); }} />}
 
-      {screen === "select" && <FairySelection onBack={() => setScreen("landing")} onSelect={handleFairySelect} />}
+      {screen === "select" && <FairySelection onBack={() => { playButtonClick(); setScreen("landing"); }} onSelect={handleFairySelect} />}
 
       {screen === "playing" && selectedFairy && (
         <GameplayScreen
@@ -468,6 +554,8 @@ export default function Home() {
           onMove={handleMove}
           onDash={handleDash}
           onRestart={resetGame}
+          gameEvents={gameEvents}
+          damageFlash={damageFlash}
         />
       )}
 

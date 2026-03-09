@@ -2,9 +2,9 @@
 
 import { PowerPanel } from "@/components/game/PowerPanel";
 import { World3D } from "@/components/game/World3D";
-import { AREAS, POWERS } from "@/lib/game-data";
+import { AREAS } from "@/lib/game-data";
 import { WORLD_MAP } from "@/lib/world-map";
-import { Direction, Fairy, Point, PowerId, PowerState } from "@/types/game";
+import { Direction, Fairy, GameEvent, Point, PowerId, PowerState } from "@/types/game";
 
 interface GameplayScreenProps {
   selectedFairy: Fairy;
@@ -26,6 +26,8 @@ interface GameplayScreenProps {
   onMove: (direction: Direction) => void;
   onDash: () => void;
   onRestart: () => void;
+  gameEvents: GameEvent[];
+  damageFlash: boolean;
 }
 
 function HeartBar({ health, maxHealth }: { health: number; maxHealth: number }) {
@@ -90,6 +92,40 @@ function StatusToast({ message }: { message: string }) {
   );
 }
 
+function FloatingEvents({ events }: { events: GameEvent[] }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+      {events.map((event, index) => (
+        <div
+          key={event.id}
+          className="absolute animate-float-up text-center font-black"
+          style={{
+            color: event.color,
+            fontSize: event.type === "damage" ? "2.5rem" : "1.25rem",
+            textShadow: `0 0 10px ${event.color}, 0 0 20px ${event.color}50`,
+            bottom: `${55 + index * 8}%`,
+            animationDelay: `${index * 50}ms`,
+          }}
+        >
+          {event.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DamageFlash({ active }: { active: boolean }) {
+  if (!active) return null;
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-30 animate-damage-flash"
+      style={{
+        background: "radial-gradient(ellipse at center, transparent 30%, rgba(255,0,0,0.35) 100%)",
+      }}
+    />
+  );
+}
+
 export function GameplayScreen({
   selectedFairy,
   areaIndex,
@@ -110,6 +146,8 @@ export function GameplayScreen({
   onMove,
   onDash,
   onRestart,
+  gameEvents,
+  damageFlash,
 }: GameplayScreenProps) {
   const currentArea = AREAS[areaIndex];
 
@@ -130,6 +168,12 @@ export function GameplayScreen({
           lastMoveDirection={lastMoveDirection}
         />
       </div>
+
+      {/* Damage flash overlay */}
+      <DamageFlash active={damageFlash} />
+
+      {/* Floating event text */}
+      <FloatingEvents events={gameEvents} />
 
       {/* ── HUD Overlay ── */}
 

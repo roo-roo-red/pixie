@@ -60,3 +60,11 @@ export interface AreaWorld {
   petalNodes: Record<PowerId, Point | null>;
   obstacleNodes: Record<string, Point | null>;
 }
+
+export interface GameEvent {
+  id: number;
+  type: "damage" | "collect" | "clear" | "area" | "power";
+  text: string;
+  color: string;
+  timestamp: number;
+}
