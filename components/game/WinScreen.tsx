@@ -4,19 +4,35 @@ interface WinScreenProps {
 
 export function WinScreen({ onPlayAgain }: WinScreenProps) {
   return (
-    <section className="w-full rounded-3xl border border-emerald-100 bg-white/75 p-6 text-center shadow-xl shadow-emerald-100/60 backdrop-blur sm:p-10">
-      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-600">Victory</p>
-      <h2 className="mt-3 text-4xl font-black text-emerald-700 sm:text-5xl">Pixie Land Restored</h2>
-      <p className="mx-auto mt-4 max-w-2xl text-base text-emerald-900/80 sm:text-lg">
-        You reached Pixie Land, gathered every magical petal, and drove the witch&apos;s minions away.
-      </p>
-      <button
-        type="button"
-        onClick={onPlayAgain}
-        className="mt-7 rounded-full bg-emerald-500 px-7 py-3 text-base font-bold text-white transition hover:bg-emerald-600"
-      >
-        Play Again
-      </button>
-    </section>
+    <div className="flex h-dvh w-full items-center justify-center" style={{ background: "radial-gradient(ellipse at 50% 40%, #0a2a1a 0%, #0a0a1a 70%)" }}>
+      <section className="animate-fade-in-up text-center">
+        <p
+          className="text-sm font-bold uppercase tracking-[0.3em]"
+          style={{ color: "var(--neon-green)" }}
+        >
+          Victory
+        </p>
+        <h2
+          className="mt-4 text-5xl font-black sm:text-6xl"
+          style={{
+            color: "#fff",
+            textShadow: "0 0 30px rgba(57,255,20,0.5), 0 0 60px rgba(57,255,20,0.2)",
+          }}
+        >
+          Pixie Land Restored
+        </h2>
+        <p className="mx-auto mt-5 max-w-lg text-base text-white/60 sm:text-lg">
+          You reached Pixie Land, gathered every magical petal, and drove the witch&apos;s minions away.
+        </p>
+        <button
+          type="button"
+          onClick={onPlayAgain}
+          className="btn-neon mt-10 text-lg"
+          style={{ background: "linear-gradient(135deg, #39ff14, #00d4ff)" }}
+        >
+          Play Again
+        </button>
+      </section>
+    </div>
   );
 }

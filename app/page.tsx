@@ -46,7 +46,6 @@ function isSamePoint(a: Point | undefined | null, b: Point) {
 function getResolvedObstacleNodes(areaId: AreaId, now: number) {
   const base = { ...WORLD_MAP[areaId].obstacleNodes };
 
-  // Simple behavior upgrade: one minion patrols between two tiles every 2 seconds.
   if (areaId === "crystal-river") {
     const phase = Math.floor(now / 2000) % 2;
     base["night-lanterns"] = phase === 0 ? { x: 5, y: 4 } : { x: 5, y: 3 };
@@ -443,52 +442,37 @@ export default function Home() {
   );
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl items-center px-4 py-6 sm:px-6">
-      <div className="w-full">
-        {screen === "landing" && <LandingScreen onStart={() => setScreen("select")} />}
+    <main className="relative h-dvh w-full overflow-hidden">
+      {screen === "landing" && <LandingScreen onStart={() => setScreen("select")} />}
 
-        {screen === "select" && <FairySelection onBack={() => setScreen("landing")} onSelect={handleFairySelect} />}
+      {screen === "select" && <FairySelection onBack={() => setScreen("landing")} onSelect={handleFairySelect} />}
 
-        {screen === "playing" && selectedFairy && (
-          <>
-            <GameplayScreen
-              selectedFairy={selectedFairy}
-              areaIndex={areaIndex}
-              playerPosition={playerPosition}
-              resolvedObstacleNodes={resolvedObstacleNodes}
-              collectedPetals={collectedPetals}
-              powers={powers}
-              activePower={effectiveActivePower}
-              obstaclesCleared={obstaclesCleared}
-              now={now}
-              playerHealth={playerHealth}
-              maxHealth={MAX_HEALTH}
-              dashSecondsLeft={dashSecondsLeft}
-              lastMoveDirection={lastMoveDirection}
-              statusMessage={statusMessage}
-              onActivatePower={handleActivatePower}
-              onStartRecharge={handleStartRecharge}
-              onMove={handleMove}
-              onDash={handleDash}
-            />
+      {screen === "playing" && selectedFairy && (
+        <GameplayScreen
+          selectedFairy={selectedFairy}
+          areaIndex={areaIndex}
+          playerPosition={playerPosition}
+          resolvedObstacleNodes={resolvedObstacleNodes}
+          collectedPetals={collectedPetals}
+          powers={powers}
+          activePower={effectiveActivePower}
+          obstaclesCleared={obstaclesCleared}
+          now={now}
+          playerHealth={playerHealth}
+          maxHealth={MAX_HEALTH}
+          dashSecondsLeft={dashSecondsLeft}
+          lastMoveDirection={lastMoveDirection}
+          statusMessage={statusMessage}
+          onActivatePower={handleActivatePower}
+          onStartRecharge={handleStartRecharge}
+          onMove={handleMove}
+          onDash={handleDash}
+          onRestart={resetGame}
+        />
+      )}
 
-            <footer className="mt-4 flex items-center justify-between rounded-2xl border border-rose-100 bg-white/75 px-4 py-2 text-xs font-semibold text-rose-700">
-              <span>Petals collected: {collectedPetals.size}/4</span>
-              <span>Hearts: {playerHealth}/{MAX_HEALTH}</span>
-              <button
-                type="button"
-                onClick={resetGame}
-                className="rounded-full border border-rose-300 px-3 py-1 transition hover:bg-rose-50"
-              >
-                Restart
-              </button>
-            </footer>
-          </>
-        )}
-
-        {screen === "win" && <WinScreen onPlayAgain={resetGame} />}
-        {screen === "lose" && <LoseScreen onTryAgain={resetGame} />}
-      </div>
+      {screen === "win" && <WinScreen onPlayAgain={resetGame} />}
+      {screen === "lose" && <LoseScreen onTryAgain={resetGame} />}
     </main>
   );
 }
