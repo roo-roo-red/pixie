@@ -1,36 +1,120 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pixie
 
-## Getting Started
+Pixie is a cute fantasy 2D browser game prototype built with Next.js, TypeScript, and Tailwind CSS.
 
-First, run the development server:
+In version 1, the player:
+- picks one of 3 fairies,
+- explores 3 adventure areas,
+- collects 4 magical petals (Ice, Fire, Water, Animal Talk),
+- manages limited petal energy and recharge,
+- clears witch minion obstacles,
+- reaches Pixie Land to win.
+
+## Tech Stack
+
+- Next.js (App Router)
+- TypeScript
+- Tailwind CSS v4
+- React state + reusable components
+
+## Project Structure
+
+```text
+app/
+  globals.css
+  layout.tsx
+  page.tsx
+components/
+  game/
+    AreaMap.tsx
+    FairySelection.tsx
+    GameplayScreen.tsx
+    LandingScreen.tsx
+    PowerPanel.tsx
+    WinScreen.tsx
+lib/
+  game-data.ts
+types/
+  game.ts
+```
+
+## Run Locally
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Start the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+3. Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Production Commands
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Build for production:
 
-## Learn More
+```bash
+npm run build
+```
 
-To learn more about Next.js, take a look at the following resources:
+Run production server locally:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run start
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Lint:
+
+```bash
+npm run lint
+```
+
+## Push to GitHub
+
+1. Create a new empty GitHub repo named `pixie`.
+2. In this project directory, run:
+
+```bash
+git add .
+git commit -m "feat: bootstrap pixie v1 playable adventure"
+git branch -M main
+git remote add origin https://github.com/<your-username>/pixie.git
+git push -u origin main
+```
+
+If a remote already exists, update it instead:
+
+```bash
+git remote set-url origin https://github.com/<your-username>/pixie.git
+```
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Option A: Vercel Dashboard (recommended)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Push the repo to GitHub.
+2. In Vercel, click **Add New Project**.
+3. Import the `pixie` repository.
+4. Keep default framework settings (Next.js).
+5. Click **Deploy**.
+
+### Option B: Vercel CLI
+
+```bash
+npm i -g vercel
+vercel
+```
+
+Follow the prompts to link or create a Vercel project.
+
+## Expansion Notes
+
+The game is intentionally organized for easy extension:
+- add new areas in `lib/game-data.ts`,
+- add new powers in `types/game.ts` + `lib/game-data.ts`,
+- keep gameplay rules centralized in `app/page.tsx`.
