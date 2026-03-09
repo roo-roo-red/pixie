@@ -5,7 +5,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Float, Sparkles, Stars, Trail } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import * as THREE from "three";
-import { Area, AreaWorld, Direction, HazardTile, MinionState, Point, PowerId } from "@/types/game";
+import { Area, AreaWorld, BossState, ComboState, Direction, HazardTile, MinionState, Point, PowerId, Projectile } from "@/types/game";
 import { getMinionsForArea } from "@/lib/game-data";
 
 interface World3DProps {
@@ -21,6 +21,9 @@ interface World3DProps {
   lastMoveDirection: Direction;
   minionStates: MinionState[];
   now: number;
+  bossState: BossState | null;
+  projectiles: Projectile[];
+  comboState: ComboState;
 }
 
 const AREA_THEMES: Record<string, {
@@ -42,8 +45,8 @@ const AREA_THEMES: Record<string, {
   "flower-forest": {
     bg: "#1a0a2e",
     fogColor: "#1a0a2e",
-    fogNear: 8,
-    fogFar: 20,
+    fogNear: 10,
+    fogFar: 25,
     ambientIntensity: 0.5,
     ambientColor: "#ffd4e8",
     sunColor: "#ffcc77",
@@ -58,8 +61,8 @@ const AREA_THEMES: Record<string, {
   "crystal-river": {
     bg: "#0a1a3e",
     fogColor: "#0a1a3e",
-    fogNear: 7,
-    fogFar: 18,
+    fogNear: 9,
+    fogFar: 28,
     ambientIntensity: 0.45,
     ambientColor: "#aaccff",
     sunColor: "#88bbff",
@@ -74,8 +77,8 @@ const AREA_THEMES: Record<string, {
   "shadow-path": {
     bg: "#12061e",
     fogColor: "#12061e",
-    fogNear: 5,
-    fogFar: 15,
+    fogNear: 7,
+    fogFar: 25,
     ambientIntensity: 0.3,
     ambientColor: "#aa88dd",
     sunColor: "#8866aa",
@@ -90,8 +93,8 @@ const AREA_THEMES: Record<string, {
   "pixie-land": {
     bg: "#1a0a3e",
     fogColor: "#1a0a3e",
-    fogNear: 10,
-    fogFar: 25,
+    fogNear: 12,
+    fogFar: 35,
     ambientIntensity: 0.7,
     ambientColor: "#ffeedd",
     sunColor: "#ffddaa",
@@ -780,6 +783,209 @@ function MinionMesh({
   );
 }
 
+/* ── Health pickup visual ── */
+
+function HealthPickupMesh({ position }: { position: [number, number, number] }) {
+  return (
+    <group position={position}>
+      <Float speed={2.5} floatIntensity={0.4} rotationIntensity={0.3}>
+        {/* Heart-like shape using two overlapping spheres + a small bottom cone */}
+        <group position={[0, 0.4, 0]}>
+          <mesh position={[-0.06, 0.03, 0]} castShadow>
+            <sphereGeometry args={[0.1, 12, 12]} />
+            <meshStandardMaterial
+              color="#39ff14"
+              emissive="#22cc44"
+              emissiveIntensity={2}
+              toneMapped={false}
+            />
+          </mesh>
+          <mesh position={[0.06, 0.03, 0]} castShadow>
+            <sphereGeometry args={[0.1, 12, 12]} />
+            <meshStandardMaterial
+              color="#ff69b4"
+              emissive="#ff3388"
+              emissiveIntensity={2}
+              toneMapped={false}
+            />
+          </mesh>
+          <mesh position={[0, -0.05, 0]} rotation={[0, 0, Math.PI]}>
+            <coneGeometry args={[0.12, 0.14, 8]} />
+            <meshStandardMaterial
+              color="#39ff14"
+              emissive="#22cc44"
+              emissiveIntensity={1.5}
+              toneMapped={false}
+            />
+          </mesh>
+          <Sparkles count={6} size={1.2} scale={0.4} speed={0.8} color="#66ff88" />
+        </group>
+      </Float>
+      <pointLight color="#39ff14" intensity={1.5} distance={3} decay={2} position={[0, 0.5, 0]} />
+    </group>
+  );
+}
+
+/* ── Witch boss visual ── */
+
+const BOSS_PHASE_COLORS: Record<string, { body: string; glow: number; lightColor: string }> = {
+  intro: { body: "#3a0066", glow: 1.0, lightColor: "#7700cc" },
+  phase1: { body: "#3a0066", glow: 1.5, lightColor: "#7700cc" },
+  phase2: { body: "#660022", glow: 2.2, lightColor: "#cc0044" },
+  phase3: { body: "#660022", glow: 3.0, lightColor: "#ff0044" },
+};
+
+function WitchBoss3D({
+  bossState,
+  gridWidth,
+  gridHeight,
+}: {
+  bossState: BossState;
+  gridWidth: number;
+  gridHeight: number;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+  const bodyRef = useRef<THREE.Mesh>(null);
+
+  const isVulnerable = bossState.vulnerableUntil > Date.now();
+  const phaseVis = BOSS_PHASE_COLORS[bossState.phase] ?? BOSS_PHASE_COLORS.phase1;
+
+  useFrame((state) => {
+    if (!groupRef.current || !bodyRef.current) return;
+    const t = state.clock.elapsedTime;
+
+    // Smooth position lerping
+    const target = toWorld(bossState.position, gridWidth, gridHeight);
+    groupRef.current.position.x = THREE.MathUtils.lerp(groupRef.current.position.x, target.x, 0.1);
+    groupRef.current.position.z = THREE.MathUtils.lerp(groupRef.current.position.z, target.z, 0.1);
+    groupRef.current.position.y = 0.45 + Math.sin(t * 2) * 0.08;
+
+    // Vulnerable wobble
+    if (isVulnerable) {
+      groupRef.current.rotation.z = Math.sin(t * 18) * 0.35;
+    } else {
+      groupRef.current.rotation.z = THREE.MathUtils.lerp(groupRef.current.rotation.z, 0, 0.1);
+    }
+
+    // Phase 3 flickering emissive
+    if (bossState.phase === "phase3" && bodyRef.current) {
+      const mat = bodyRef.current.material as THREE.MeshStandardMaterial;
+      mat.emissiveIntensity = phaseVis.glow + Math.sin(t * 10) * 1.5;
+    }
+  });
+
+  if (bossState.phase === "defeated") return null;
+
+  const bodyColor = isVulnerable ? "#ffffff" : phaseVis.body;
+  const emissiveColor = isVulnerable ? "#ffffff" : phaseVis.body;
+
+  return (
+    <group ref={groupRef}>
+      {/* Body: large capsule */}
+      <mesh ref={bodyRef} castShadow>
+        <capsuleGeometry args={[0.2, 0.5, 8, 16]} />
+        <meshStandardMaterial
+          color={bodyColor}
+          emissive={emissiveColor}
+          emissiveIntensity={isVulnerable ? 3 : phaseVis.glow}
+          toneMapped={false}
+        />
+      </mesh>
+
+      {/* Hat: cone on top */}
+      <mesh position={[0, 0.48, 0]} castShadow>
+        <coneGeometry args={[0.15, 0.35, 8]} />
+        <meshStandardMaterial
+          color="#110011"
+          emissive={phaseVis.body}
+          emissiveIntensity={0.3}
+          toneMapped={false}
+        />
+      </mesh>
+
+      {/* Left eye */}
+      <mesh position={[-0.08, 0.1, 0.17]}>
+        <sphereGeometry args={[0.04, 8, 8]} />
+        <meshStandardMaterial
+          color="#ff0000"
+          emissive="#ff0000"
+          emissiveIntensity={isVulnerable ? 1 : 3}
+          toneMapped={false}
+        />
+      </mesh>
+
+      {/* Right eye */}
+      <mesh position={[0.08, 0.1, 0.17]}>
+        <sphereGeometry args={[0.04, 8, 8]} />
+        <meshStandardMaterial
+          color="#ff0000"
+          emissive="#ff0000"
+          emissiveIntensity={isVulnerable ? 1 : 3}
+          toneMapped={false}
+        />
+      </mesh>
+
+      <Sparkles count={8} size={2} scale={0.8} speed={0.6} color={isVulnerable ? "#ffffff" : phaseVis.lightColor} />
+      <pointLight
+        color={isVulnerable ? "#ffffff" : phaseVis.lightColor}
+        intensity={isVulnerable ? 4 : phaseVis.glow * 1.2}
+        distance={5}
+        decay={2}
+      />
+    </group>
+  );
+}
+
+/* ── Dark orb projectile visual ── */
+
+function DarkOrb3D({
+  projectile,
+  gridWidth,
+  gridHeight,
+}: {
+  projectile: Projectile;
+  gridWidth: number;
+  gridHeight: number;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  useFrame(() => {
+    if (!groupRef.current) return;
+    const target = toWorld(projectile.position, gridWidth, gridHeight);
+    groupRef.current.position.x = THREE.MathUtils.lerp(groupRef.current.position.x, target.x, 0.2);
+    groupRef.current.position.z = THREE.MathUtils.lerp(groupRef.current.position.z, target.z, 0.2);
+    groupRef.current.position.y = 0.35;
+  });
+
+  return (
+    <group ref={groupRef}>
+      <mesh castShadow>
+        <sphereGeometry args={[0.12, 12, 12]} />
+        <meshStandardMaterial
+          color="#440022"
+          emissive="#990044"
+          emissiveIntensity={2.5}
+          toneMapped={false}
+        />
+      </mesh>
+      {/* Inner glow */}
+      <mesh>
+        <sphereGeometry args={[0.16, 10, 10]} />
+        <meshStandardMaterial
+          color="#660033"
+          emissive="#cc0066"
+          emissiveIntensity={0.8}
+          transparent
+          opacity={0.25}
+          toneMapped={false}
+        />
+      </mesh>
+      <Sparkles count={4} size={1} scale={0.3} speed={1.5} color="#ff3388" />
+      <pointLight color="#990044" intensity={0.8} distance={2} decay={2} />
+    </group>
+  );
+}
+
 /* ── Main World3D ── */
 
 export function World3D({
@@ -795,6 +1001,9 @@ export function World3D({
   lastMoveDirection,
   minionStates,
   now,
+  bossState,
+  projectiles,
+  comboState,
 }: World3DProps) {
   const theme = AREA_THEMES[area.id] ?? AREA_THEMES["flower-forest"];
   const wallSet = new Set(areaWorld.walls.map(pointKey));
@@ -968,6 +1177,17 @@ export function World3D({
           />
         ))}
 
+        {/* Health pickups */}
+        {areaWorld.healthPickups.map((hp, i) => {
+          const w = toWorld(hp, areaWorld.width, areaWorld.height);
+          return (
+            <HealthPickupMesh
+              key={`health-${i}`}
+              position={[w.x, 0, w.z]}
+            />
+          );
+        })}
+
         <FairyOrb target={playerTarget} lastMoveDirection={lastMoveDirection} />
 
         {/* Minions */}
@@ -984,6 +1204,25 @@ export function World3D({
             />
           );
         })}
+
+        {/* Boss */}
+        {bossState && bossState.phase !== "defeated" && (
+          <WitchBoss3D
+            bossState={bossState}
+            gridWidth={areaWorld.width}
+            gridHeight={areaWorld.height}
+          />
+        )}
+
+        {/* Projectiles */}
+        {projectiles.map((p) => (
+          <DarkOrb3D
+            key={p.id}
+            projectile={p}
+            gridWidth={areaWorld.width}
+            gridHeight={areaWorld.height}
+          />
+        ))}
 
         <FollowCamera
           target={playerTarget}

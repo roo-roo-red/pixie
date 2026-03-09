@@ -1,4 +1,4 @@
-import { Area, Fairy, MinionDefinition, PowerDefinition, PowerId } from "@/types/game";
+import { Area, Fairy, MinionDefinition, PowerCombo, PowerDefinition, PowerId } from "@/types/game";
 
 export const POWERS: PowerDefinition[] = [
   {
@@ -113,9 +113,9 @@ export const AREAS: Area[] = [
   {
     id: "pixie-land",
     name: "Pixie Land",
-    subtitle: "Final Goal",
+    subtitle: "Final Boss",
     description:
-      "The gates of home shimmer ahead. Break the witch's hold and restore the realm.",
+      "The witch's fortress. Defeat her to break the curse and restore the realm.",
     petals: [],
     obstacles: [],
   },
@@ -129,17 +129,83 @@ export const POWER_CONFIG = {
   rechargeMs: 10000,
 };
 
+// ── Boss config ──
+
+export const BOSS_CONFIG = {
+  maxHealth: 8,
+  startPosition: { x: 12, y: 7 },
+  phase2At: 6,
+  phase3At: 3,
+  attackDurationTicks: 8,
+  vulnerabilityMs: 3000,
+  attackCooldownMs: 2000,
+  phaseTransitionMs: 2000,
+  bossIframeMs: 800,
+  introMs: 2500,
+  orbLifetimeTicks: 14,
+  orbSpeed: 2,
+  phaseVulnerability: {
+    phase1: "fire" as PowerId,
+    phase2: "ice" as PowerId,
+    phase3: null as PowerId | null,
+  },
+};
+
+// ── Power combos ──
+
+export const POWER_COMBOS: PowerCombo[] = [
+  {
+    id: "steam-burst",
+    powers: ["fire", "water"],
+    name: "Steam Burst",
+    effectType: "burst",
+    durationMs: 1500,
+  },
+  {
+    id: "frost-shield",
+    powers: ["ice", "water"],
+    name: "Frost Shield",
+    effectType: "shield",
+    durationMs: 3000,
+  },
+  {
+    id: "nature-slow",
+    powers: ["animalTalk", "ice"],
+    name: "Nature's Grasp",
+    effectType: "slow",
+    durationMs: 2000,
+  },
+  {
+    id: "phoenix-heal",
+    powers: ["fire", "animalTalk"],
+    name: "Phoenix Song",
+    effectType: "heal",
+    durationMs: 1000,
+  },
+];
+
+export const COMBO_WINDOW_MS = 1200;
+
+// ── Star rating thresholds (per area) ──
+
+export const STAR_THRESHOLDS: Record<string, { time3: number; time2: number; maxDamage3: number; maxDamage2: number }> = {
+  "flower-forest": { time3: 30000, time2: 60000, maxDamage3: 0, maxDamage2: 1 },
+  "crystal-river": { time3: 45000, time2: 90000, maxDamage3: 0, maxDamage2: 2 },
+  "shadow-path":   { time3: 60000, time2: 120000, maxDamage3: 1, maxDamage2: 3 },
+  "pixie-land":    { time3: 90000, time2: 180000, maxDamage3: 2, maxDamage2: 5 },
+};
+
 // ── Minion definitions per area ──
 
 export const MINIONS: MinionDefinition[] = [
-  // Flower Forest — 1 slow linear patroller guarding the path
+  // Flower Forest — 1 slow linear patroller
   {
     id: "ff-imp-1",
     name: "Bramble Imp",
     areaId: "flower-forest",
     patrolType: "linear",
     speed: 0.4,
-    waypoints: [{ x: 3, y: 2 }, { x: 3, y: 6 }],
+    waypoints: [{ x: 3, y: 2 }, { x: 3, y: 8 }],
     requiredPower: "ice",
     stunDurationMs: 4000,
     visualType: "imp",
@@ -152,7 +218,7 @@ export const MINIONS: MinionDefinition[] = [
     areaId: "crystal-river",
     patrolType: "linear",
     speed: 0.5,
-    waypoints: [{ x: 1, y: 3 }, { x: 1, y: 5 }],
+    waypoints: [{ x: 1, y: 3 }, { x: 1, y: 7 }],
     requiredPower: "water",
     stunDurationMs: 3000,
     visualType: "imp",
@@ -163,7 +229,7 @@ export const MINIONS: MinionDefinition[] = [
     areaId: "crystal-river",
     patrolType: "linear",
     speed: 0.6,
-    waypoints: [{ x: 4, y: 1 }, { x: 7, y: 1 }],
+    waypoints: [{ x: 5, y: 0 }, { x: 11, y: 0 }],
     requiredPower: "fire",
     stunDurationMs: 3000,
     visualType: "imp",
@@ -175,8 +241,8 @@ export const MINIONS: MinionDefinition[] = [
     patrolType: "circular",
     speed: 0.4,
     waypoints: [
-      { x: 4, y: 3 }, { x: 6, y: 3 },
-      { x: 6, y: 5 }, { x: 4, y: 5 },
+      { x: 8, y: 4 }, { x: 10, y: 4 },
+      { x: 10, y: 6 }, { x: 8, y: 6 },
     ],
     requiredPower: "water",
     stunDurationMs: 3000,
@@ -191,8 +257,8 @@ export const MINIONS: MinionDefinition[] = [
     patrolType: "circular",
     speed: 0.5,
     waypoints: [
-      { x: 3, y: 3 }, { x: 4, y: 3 },
-      { x: 4, y: 5 }, { x: 3, y: 5 },
+      { x: 3, y: 5 }, { x: 4, y: 5 },
+      { x: 4, y: 7 }, { x: 3, y: 7 },
     ],
     requiredPower: "animalTalk",
     stunDurationMs: 4000,
@@ -204,22 +270,22 @@ export const MINIONS: MinionDefinition[] = [
     areaId: "shadow-path",
     patrolType: "chase",
     speed: 0.7,
-    waypoints: [{ x: 6, y: 2 }],
-    chaseRange: 4,
+    waypoints: [{ x: 7, y: 5 }],
+    chaseRange: 5,
     requiredPower: "animalTalk",
     stunDurationMs: 5000,
     visualType: "stalker",
   },
 
-  // Pixie Land — 2 chase stalkers + 1 fast circular
+  // Pixie Land — 2 chase stalkers + 1 circular (plus boss)
   {
     id: "pl-stalker-1",
     name: "Witch's Shadow",
     areaId: "pixie-land",
     patrolType: "chase",
     speed: 0.8,
-    waypoints: [{ x: 5, y: 2 }],
-    chaseRange: 5,
+    waypoints: [{ x: 6, y: 4 }],
+    chaseRange: 7,
     requiredPower: "fire",
     stunDurationMs: 3000,
     visualType: "stalker",
@@ -230,8 +296,8 @@ export const MINIONS: MinionDefinition[] = [
     areaId: "pixie-land",
     patrolType: "chase",
     speed: 0.75,
-    waypoints: [{ x: 5, y: 6 }],
-    chaseRange: 4,
+    waypoints: [{ x: 6, y: 10 }],
+    chaseRange: 7,
     requiredPower: "ice",
     stunDurationMs: 3000,
     visualType: "stalker",
@@ -243,8 +309,8 @@ export const MINIONS: MinionDefinition[] = [
     patrolType: "circular",
     speed: 0.6,
     waypoints: [
-      { x: 4, y: 3 }, { x: 5, y: 3 },
-      { x: 5, y: 5 }, { x: 4, y: 5 },
+      { x: 6, y: 5 }, { x: 8, y: 5 },
+      { x: 8, y: 9 }, { x: 6, y: 9 },
     ],
     requiredPower: "water",
     stunDurationMs: 3000,

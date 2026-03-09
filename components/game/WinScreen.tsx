@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { AreaScore } from "@/types/game";
+import { AREAS } from "@/lib/game-data";
 
 interface WinScreenProps {
   onPlayAgain: () => void;
+  areaScores?: Record<string, AreaScore>;
 }
 
 interface Particle {
@@ -33,7 +36,7 @@ function createConfetti(count: number): Particle[] {
   }));
 }
 
-export function WinScreen({ onPlayAgain }: WinScreenProps) {
+export function WinScreen({ onPlayAgain, areaScores }: WinScreenProps) {
   const [particles] = useState(() => createConfetti(50));
   const [visible, setVisible] = useState(false);
 
@@ -93,6 +96,42 @@ export function WinScreen({ onPlayAgain }: WinScreenProps) {
         <p className="mx-auto mt-5 max-w-lg text-base text-white/60 sm:text-lg">
           You reached Pixie Land, gathered every magical petal, and drove the witch&apos;s minions away.
         </p>
+
+        {/* Area score summary */}
+        {areaScores && Object.keys(areaScores).length > 0 && (
+          <div className="mx-auto mt-8 flex max-w-xl flex-col gap-3">
+            {AREAS.map((area) => {
+              const score = areaScores[area.id];
+              if (!score) return null;
+              const filledStars = score.stars;
+              const emptyStars = 3 - filledStars;
+              const timeSec = (score.timeMs / 1000).toFixed(1);
+              return (
+                <div
+                  key={area.id}
+                  className="flex items-center justify-between rounded-xl px-5 py-3"
+                  style={{
+                    background: "rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(12px)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                  }}
+                >
+                  <span className="text-sm font-semibold text-white/90">{area.name}</span>
+                  <span className="text-lg tracking-wider" aria-label={`${filledStars} of 3 stars`}>
+                    {Array.from({ length: filledStars }, (_, i) => (
+                      <span key={`f${i}`} style={{ color: "#ffd700" }}>★</span>
+                    ))}
+                    {Array.from({ length: emptyStars }, (_, i) => (
+                      <span key={`e${i}`} style={{ color: "#555" }}>☆</span>
+                    ))}
+                  </span>
+                  <span className="text-sm tabular-nums text-white/50">{timeSec}s</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <button
           type="button"
           onClick={onPlayAgain}

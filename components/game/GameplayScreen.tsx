@@ -4,7 +4,7 @@ import { PowerPanel } from "@/components/game/PowerPanel";
 import { World3D } from "@/components/game/World3D";
 import { AREAS } from "@/lib/game-data";
 import { WORLD_MAP } from "@/lib/world-map";
-import { Direction, Fairy, GameEvent, MinionState, Point, PowerId, PowerState } from "@/types/game";
+import { BossState, ComboState, Direction, Fairy, GameEvent, MinionState, Point, PowerId, PowerState, Projectile } from "@/types/game";
 
 interface GameplayScreenProps {
   selectedFairy: Fairy;
@@ -29,6 +29,9 @@ interface GameplayScreenProps {
   gameEvents: GameEvent[];
   damageFlash: boolean;
   minionStates: MinionState[];
+  bossState: BossState | null;
+  projectiles: Projectile[];
+  comboState: ComboState;
 }
 
 const AREA_ACCENT: Record<string, { color: string; glow: string; gradient: string }> = {
@@ -174,6 +177,95 @@ function AreaBanner({ name, subtitle, accent }: { name: string; subtitle: string
   );
 }
 
+const COMBO_NAMES: Record<string, string> = {
+  "steam-burst": "Steam Burst",
+  "frost-shield": "Frost Shield",
+  "nature-slow": "Nature's Grasp",
+  "phoenix-heal": "Phoenix Song",
+};
+
+function BossHealthBar({ bossState, now }: { bossState: BossState; now: number }) {
+  const pct = (bossState.health / bossState.maxHealth) * 100;
+  const isVulnerable = bossState.vulnerableUntil > now;
+  const phaseText =
+    bossState.phase === "intro" ? "Awakening..."
+    : bossState.phase === "phase1" ? "Phase I"
+    : bossState.phase === "phase2" ? "Phase II"
+    : bossState.phase === "phase3" ? "Phase III"
+    : "Defeated";
+
+  return (
+    <div
+      className="flex flex-col items-center gap-1.5 rounded-xl px-6 py-3"
+      style={{
+        background: "rgba(10, 10, 30, 0.75)",
+        backdropFilter: "blur(16px)",
+        border: "1px solid rgba(184,69,255,0.3)",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.5), 0 0 30px rgba(184,69,255,0.15)",
+        minWidth: "280px",
+      }}
+    >
+      <div className="flex w-full items-center justify-between">
+        <span
+          className="text-xs font-black uppercase tracking-wider"
+          style={{ color: "#b845ff", textShadow: "0 0 10px rgba(184,69,255,0.5)" }}
+        >
+          The Witch
+        </span>
+        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "rgba(184,69,255,0.6)" }}>
+          {phaseText}
+        </span>
+      </div>
+      <div className="relative h-4 w-full overflow-hidden rounded-full" style={{ background: "rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.1)" }}>
+        <div
+          className="absolute inset-y-0 left-0 rounded-full transition-all duration-500 ease-out"
+          style={{
+            width: `${pct}%`,
+            background: "linear-gradient(90deg, #b845ffcc, #ff3366)",
+            boxShadow: "0 0 12px rgba(184,69,255,0.5), inset 0 1px 0 rgba(255,255,255,0.3)",
+          }}
+        />
+        <div className="absolute inset-0 rounded-full animate-shimmer" />
+      </div>
+      <div className="flex w-full items-center justify-between">
+        <span className="text-xs font-black tabular-nums" style={{ color: "#ff3366", textShadow: "0 0 8px rgba(255,51,102,0.4)" }}>
+          {bossState.health}/{bossState.maxHealth}
+        </span>
+        {isVulnerable && (
+          <span
+            className="animate-pulse text-[10px] font-black uppercase tracking-wider"
+            style={{ color: "#ffd700", textShadow: "0 0 10px rgba(255,215,0,0.6)" }}
+          >
+            VULNERABLE
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ComboIndicator({ comboState, now }: { comboState: ComboState; now: number }) {
+  if (!comboState.activeComboId || comboState.activeUntil <= now) return null;
+
+  const comboName = COMBO_NAMES[comboState.activeComboId] ?? comboState.activeComboId;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+      <div
+        className="animate-float-up text-center font-black"
+        style={{
+          fontSize: "2rem",
+          color: "#ffd700",
+          textShadow: "0 0 20px rgba(255,215,0,0.8), 0 0 40px rgba(255,215,0,0.4), 0 2px 4px rgba(0,0,0,0.5)",
+          letterSpacing: "0.08em",
+        }}
+      >
+        {comboName}
+      </div>
+    </div>
+  );
+}
+
 function DashButton({ dashSecondsLeft, onDash }: { dashSecondsLeft: number; onDash: () => void }) {
   const ready = dashSecondsLeft <= 0;
   return (
@@ -265,6 +357,9 @@ export function GameplayScreen({
   gameEvents,
   damageFlash,
   minionStates,
+  bossState,
+  projectiles,
+  comboState,
 }: GameplayScreenProps) {
   const currentArea = AREAS[areaIndex];
   const accent = AREA_ACCENT[currentArea.id] ?? AREA_ACCENT["flower-forest"];
@@ -286,6 +381,9 @@ export function GameplayScreen({
           lastMoveDirection={lastMoveDirection}
           minionStates={minionStates}
           now={now}
+          bossState={bossState}
+          projectiles={projectiles}
+          comboState={comboState}
         />
       </div>
 
@@ -339,6 +437,16 @@ export function GameplayScreen({
       <div className="absolute top-4 left-1/2 z-10 -translate-x-1/2">
         <AreaBanner name={currentArea.name} subtitle={currentArea.subtitle} accent={accent} />
       </div>
+
+      {/* Boss health bar — below the area banner */}
+      {bossState && bossState.phase !== "defeated" && (
+        <div className="absolute top-20 left-1/2 z-10 -translate-x-1/2">
+          <BossHealthBar bossState={bossState} now={now} />
+        </div>
+      )}
+
+      {/* Combo indicator — center screen */}
+      <ComboIndicator comboState={comboState} now={now} />
 
       {/* Bottom-center: Power bar */}
       <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2">

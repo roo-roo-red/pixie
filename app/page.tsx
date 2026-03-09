@@ -6,27 +6,26 @@ import { GameplayScreen } from "@/components/game/GameplayScreen";
 import { LandingScreen } from "@/components/game/LandingScreen";
 import { LoseScreen } from "@/components/game/LoseScreen";
 import { WinScreen } from "@/components/game/WinScreen";
-import { AREAS, POWER_CONFIG, POWERS, getMinionsForArea } from "@/lib/game-data";
+import { AREAS, POWER_CONFIG, POWERS, STAR_THRESHOLDS, getMinionsForArea } from "@/lib/game-data";
 import { WORLD_MAP } from "@/lib/world-map";
 import {
-  playButtonClick,
-  playCollectSound,
-  playDamageSound,
-  playDashSound,
-  playLoseSound,
-  playMoveSound,
-  playObstacleClearSound,
-  playPowerActivateSound,
-  playRechargeStartSound,
-  playWinSound,
+  createInitialBossState, tickBoss, tickProjectiles, checkBossDamage,
+  detectCombo, calculateStars,
+} from "@/lib/boss-logic";
+import {
+  playButtonClick, playCollectSound, playDamageSound, playDashSound,
+  playLoseSound, playMoveSound, playObstacleClearSound, playPowerActivateSound,
+  playRechargeStartSound, playWinSound, playBossAttackSound, playBossHitSound,
+  playBossPhaseSound, playComboSound, playHealSound, playBossDefeatedSound,
 } from "@/lib/sounds";
 import {
-  AreaId, Direction, Fairy, GameEvent, HazardTile, MinionDefinition, MinionState,
-  Point, PowerId, PowerState, Screen,
+  AreaId, AreaScore, BossState, ComboState, Direction, Fairy, GameEvent,
+  HazardTile, MinionDefinition, MinionState, Point, PowerId, PowerState,
+  Projectile, Screen,
 } from "@/types/game";
 
 const DASH_COOLDOWN_MS = 5000;
-const MAX_HEALTH = 3;
+const MAX_HEALTH = 5;
 const MINION_HIT_COOLDOWN_MS = 1500;
 const GAME_TICK_MS = 150;
 
@@ -44,7 +43,6 @@ function createInitialPowers(): Record<PowerId, PowerState> {
 function resolvePowerState(power: PowerState, now: number): PowerState {
   const rechargeFinished = power.rechargeUntil !== null && power.rechargeUntil <= now;
   const activeFinished = power.activeUntil !== null && power.activeUntil <= now;
-
   return {
     ...power,
     energy: rechargeFinished ? power.maxEnergy : power.energy,
@@ -71,11 +69,11 @@ function isWalkable(p: Point, world: { width: number; height: number; walls: Poi
 }
 
 function isHazardActive(hazard: HazardTile, now: number): boolean {
-  if (!hazard.cycleSec) return true; // always active if no cycle
+  if (!hazard.cycleSec) return true;
   const cycleMs = hazard.cycleSec * 1000;
   const offset = (hazard.phaseOffset ?? 0) * cycleMs;
   const phase = ((now + offset) % cycleMs) / cycleMs;
-  return phase < 0.5; // active first half of cycle, safe second half
+  return phase < 0.5;
 }
 
 function getHazardAt(hazards: HazardTile[], pos: Point, now: number): HazardTile | null {
@@ -108,6 +106,7 @@ function tickMinion(
   world: { width: number; height: number; walls: Point[] },
 ): MinionState {
   if (state.defeated) return state;
+  if (state.despawnAt && now >= state.despawnAt) return { ...state, defeated: true };
   if (now < state.stunnedUntil) return state;
 
   const interval = 1000 / def.speed;
@@ -121,7 +120,6 @@ function tickMinion(
     next.isChasing = inRange;
 
     if (inRange) {
-      // Move one step toward player (greedy)
       const dx = playerPos.x - state.position.x;
       const dy = playerPos.y - state.position.y;
       let target: Point;
@@ -133,7 +131,6 @@ function tickMinion(
       if (isWalkable(target, world)) {
         next.position = target;
       } else {
-        // Try the other axis
         const alt = Math.abs(dx) >= Math.abs(dy)
           ? { x: state.position.x, y: state.position.y + Math.sign(dy || 1) }
           : { x: state.position.x + Math.sign(dx || 1), y: state.position.y };
@@ -144,7 +141,6 @@ function tickMinion(
       return next;
     }
 
-    // Not chasing — return toward home waypoint
     const home = def.waypoints[0];
     if (state.position.x !== home.x || state.position.y !== home.y) {
       const dx = home.x - state.position.x;
@@ -240,10 +236,23 @@ export default function Home() {
   const [gameEvents, setGameEvents] = useState<GameEvent[]>([]);
   const [damageFlash, setDamageFlash] = useState(false);
   const [minionStates, setMinionStates] = useState<MinionState[]>([]);
+  const [collectedHealthPickups, setCollectedHealthPickups] = useState<Set<string>>(new Set());
+
+  // Boss fight state
+  const [bossState, setBossState] = useState<BossState | null>(null);
+  const [projectiles, setProjectiles] = useState<Projectile[]>([]);
+  const [comboState, setComboState] = useState<ComboState>({
+    activeComboId: null, activeUntil: 0, lastActivations: [],
+  });
+
+  // Score tracking
+  const [areaStartTime, setAreaStartTime] = useState(0);
+  const [areaDamageTaken, setAreaDamageTaken] = useState(0);
+  const [areaScores, setAreaScores] = useState<Record<string, AreaScore>>({});
 
   const damageFlashTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Refs for game tick (avoids stale closures)
+  // Refs for game tick
   const screenRef = useRef(screen);
   const areaIndexRef = useRef(areaIndex);
   const playerPosRef = useRef(playerPosition);
@@ -252,6 +261,9 @@ export default function Home() {
   const minionStatesRef = useRef(minionStates);
   const powersRef = useRef(powers);
   const activePowerRef = useRef(activePower);
+  const bossRef = useRef(bossState);
+  const projectilesRef = useRef(projectiles);
+  const comboRef = useRef(comboState);
 
   screenRef.current = screen;
   areaIndexRef.current = areaIndex;
@@ -261,19 +273,17 @@ export default function Home() {
   minionStatesRef.current = minionStates;
   powersRef.current = powers;
   activePowerRef.current = activePower;
+  bossRef.current = bossState;
+  projectilesRef.current = projectiles;
+  comboRef.current = comboState;
 
   const pushEvent = useCallback((type: GameEvent["type"], text: string, color: string) => {
     const event: GameEvent = {
-      id: ++eventIdCounter,
-      type,
-      text,
-      color,
-      timestamp: Date.now(),
+      id: ++eventIdCounter, type, text, color, timestamp: Date.now(),
     };
     setGameEvents((prev) => [...prev.slice(-4), event]);
   }, []);
 
-  // Auto-clear old events
   useEffect(() => {
     if (gameEvents.length === 0) return;
     const timer = setTimeout(() => {
@@ -286,6 +296,34 @@ export default function Home() {
     setDamageFlash(true);
     if (damageFlashTimeout.current) clearTimeout(damageFlashTimeout.current);
     damageFlashTimeout.current = setTimeout(() => setDamageFlash(false), 400);
+  }, []);
+
+  const applyDamageInTick = useCallback((tickNow: number, world: { start: Point }, source: string, eventColor: string) => {
+    const updatedHealth = Math.max(0, playerHealthRef.current - 1);
+    nextDamageAtRef.current = tickNow + MINION_HIT_COOLDOWN_MS;
+    setNextDamageAt(tickNow + MINION_HIT_COOLDOWN_MS);
+    setPlayerPosition(world.start);
+    playerPosRef.current = world.start;
+    setPlayerHealth(updatedHealth);
+    playerHealthRef.current = updatedHealth;
+    setAreaDamageTaken((d) => d + 1);
+
+    playDamageSound();
+    setDamageFlash(true);
+    setTimeout(() => setDamageFlash(false), 400);
+    setGameEvents((prev) => [...prev.slice(-4), {
+      id: ++eventIdCounter, type: "damage" as const, text: "-1", color: eventColor, timestamp: tickNow,
+    }]);
+
+    if (updatedHealth <= 0) {
+      setScreen("lose");
+      screenRef.current = "lose";
+      playLoseSound();
+      setStatusMessage("Your fairy fell in battle. The witch's minions won this round.");
+    } else {
+      setStatusMessage(`${source} (${updatedHealth}/${MAX_HEALTH})`);
+    }
+    return updatedHealth;
   }, []);
 
   // ── Game tick loop (150ms) ──
@@ -308,13 +346,11 @@ export default function Home() {
       });
 
       // Check minion-player collisions
-      let hitByMinion = false;
+      let hit = false;
       for (const ms of updatedMinions) {
         if (ms.defeated || tickNow < ms.stunnedUntil) continue;
         if (ms.position.x === playerPosRef.current.x && ms.position.y === playerPosRef.current.y) {
           const def = defs.find((d) => d.id === ms.id);
-
-          // Check if player has the right power active to stun
           const ap = activePowerRef.current;
           if (ap && def?.requiredPower === ap) {
             const resolved = resolvePowerState(powersRef.current[ap], tickNow);
@@ -323,98 +359,122 @@ export default function Home() {
               continue;
             }
           }
+          // Check combo shield
+          const cs = comboRef.current;
+          if (cs.activeComboId === "frost-shield" && cs.activeUntil > tickNow) continue;
 
-          // Player takes damage
-          if (tickNow >= nextDamageAtRef.current && !hitByMinion) {
-            hitByMinion = true;
-            const updatedHealth = Math.max(0, playerHealthRef.current - 1);
-            nextDamageAtRef.current = tickNow + MINION_HIT_COOLDOWN_MS;
-            setNextDamageAt(tickNow + MINION_HIT_COOLDOWN_MS);
-            setPlayerPosition(world.start);
-            playerPosRef.current = world.start;
-            setPlayerHealth(updatedHealth);
-            playerHealthRef.current = updatedHealth;
-
-            playDamageSound();
-            setDamageFlash(true);
-            setTimeout(() => setDamageFlash(false), 400);
-            setGameEvents((prev) => [...prev.slice(-4), {
-              id: ++eventIdCounter,
-              type: "damage" as const,
-              text: "-1",
-              color: "#ff3333",
-              timestamp: tickNow,
-            }]);
-
-            if (updatedHealth <= 0) {
-              setScreen("lose");
-              screenRef.current = "lose";
-              playLoseSound();
-              setStatusMessage("Your fairy fell in battle. The witch's minions won this round.");
-            } else {
-              setStatusMessage(`${def?.name ?? "A minion"} caught you! (${updatedHealth}/${MAX_HEALTH})`);
-            }
+          if (tickNow >= nextDamageAtRef.current && !hit) {
+            hit = true;
+            applyDamageInTick(tickNow, world, `${def?.name ?? "Minion"} caught you!`, "#ff3333");
           }
         }
       }
 
-      // Check hazard tile damage (only if not already hit by minion)
-      if (!hitByMinion && tickNow >= nextDamageAtRef.current) {
+      // Hazard damage
+      if (!hit && tickNow >= nextDamageAtRef.current) {
         const hazard = getHazardAt(world.hazards, playerPosRef.current, tickNow);
         if (hazard) {
-          // Check if player has immunity via active power
           const ap = activePowerRef.current;
           let immune = false;
           if (ap === hazard.immunePower) {
             const resolved = resolvePowerState(powersRef.current[ap], tickNow);
-            if (resolved.activeUntil && resolved.activeUntil > tickNow) {
-              immune = true;
-            }
+            if (resolved.activeUntil && resolved.activeUntil > tickNow) immune = true;
           }
-
           if (!immune) {
-            const updatedHealth = Math.max(0, playerHealthRef.current - 1);
-            nextDamageAtRef.current = tickNow + MINION_HIT_COOLDOWN_MS;
-            setNextDamageAt(tickNow + MINION_HIT_COOLDOWN_MS);
-            setPlayerPosition(world.start);
-            playerPosRef.current = world.start;
-            setPlayerHealth(updatedHealth);
-            playerHealthRef.current = updatedHealth;
-
-            playDamageSound();
-            setDamageFlash(true);
-            setTimeout(() => setDamageFlash(false), 400);
-
-            const hazardNames: Record<string, string> = {
-              lava: "Lava", poison: "Poison", thorns: "Thorns", spikes: "Spikes",
-            };
-            const name = hazardNames[hazard.type] ?? "Hazard";
-            setGameEvents((prev) => [...prev.slice(-4), {
-              id: ++eventIdCounter,
-              type: "damage" as const,
-              text: `-1 ${name}`,
-              color: hazard.type === "lava" ? "#ff6b35" : hazard.type === "poison" ? "#39ff14" : "#ff3333",
-              timestamp: tickNow,
-            }]);
-
-            if (updatedHealth <= 0) {
-              setScreen("lose");
-              screenRef.current = "lose";
-              playLoseSound();
-              setStatusMessage("Your fairy fell in battle. The witch's minions won this round.");
-            } else {
-              setStatusMessage(`${name} burned you! (${updatedHealth}/${MAX_HEALTH})`);
-            }
+            hit = true;
+            const names: Record<string, string> = { lava: "Lava", poison: "Poison", thorns: "Thorns", spikes: "Spikes" };
+            applyDamageInTick(tickNow, world, `${names[hazard.type]} burned you!`,
+              hazard.type === "lava" ? "#ff6b35" : hazard.type === "poison" ? "#39ff14" : "#ff3333");
           }
         }
       }
 
       setMinionStates(updatedMinions);
       minionStatesRef.current = updatedMinions;
+
+      // ── Boss tick (Pixie Land only) ──
+      if (currentArea.id === "pixie-land" && bossRef.current && bossRef.current.phase !== "defeated") {
+        const prevPhase = bossRef.current.phase;
+        const bossResult = tickBoss(bossRef.current, tickNow, playerPosRef.current, world);
+
+        // Play sounds for attacks
+        if (bossResult.newProjectiles.length > 0) {
+          playBossAttackSound();
+        }
+
+        // Phase transition sound
+        if (bossResult.boss.phase !== prevPhase && bossResult.boss.phase !== "defeated") {
+          playBossPhaseSound();
+          setGameEvents((prev) => [...prev.slice(-4), {
+            id: ++eventIdCounter, type: "boss_phase" as const,
+            text: `Phase ${bossResult.boss.phase === "phase2" ? "2" : "3"}!`,
+            color: "#ff2d95", timestamp: tickNow,
+          }]);
+        }
+
+        // Tick projectiles
+        const slowActive = comboRef.current.activeComboId === "nature-slow" && comboRef.current.activeUntil > tickNow;
+        const allProjectiles = [...projectilesRef.current, ...bossResult.newProjectiles];
+        let updatedProjectiles = tickProjectiles(allProjectiles, world, slowActive);
+
+        // Projectile-player collisions
+        if (!hit && tickNow >= nextDamageAtRef.current) {
+          const shielded = comboRef.current.activeComboId === "frost-shield" && comboRef.current.activeUntil > tickNow;
+          const surviving: Projectile[] = [];
+          for (const proj of updatedProjectiles) {
+            if (proj.position.x === playerPosRef.current.x && proj.position.y === playerPosRef.current.y) {
+              if (shielded) continue; // absorb
+              const ap = activePowerRef.current;
+              if (proj.immunePower && ap === proj.immunePower) {
+                const resolved = resolvePowerState(powersRef.current[ap!], tickNow);
+                if (resolved.activeUntil && resolved.activeUntil > tickNow) continue; // immune
+              }
+              if (!hit) {
+                hit = true;
+                applyDamageInTick(tickNow, world, "Dark orb struck you!", "#9933ff");
+              }
+            } else {
+              surviving.push(proj);
+            }
+          }
+          updatedProjectiles = surviving;
+        }
+
+        setBossState(bossResult.boss);
+        bossRef.current = bossResult.boss;
+        setProjectiles(updatedProjectiles);
+        projectilesRef.current = updatedProjectiles;
+
+        // Boss defeated
+        if (bossResult.boss.phase === "defeated") {
+          playBossDefeatedSound();
+          const elapsed = tickNow - (areaStartTime || tickNow);
+          setAreaScores((prev) => ({
+            ...prev,
+            "pixie-land": {
+              timeMs: elapsed,
+              damageTaken: areaDamageTaken,
+              stars: calculateStars(elapsed, areaDamageTaken, STAR_THRESHOLDS["pixie-land"]),
+            },
+          }));
+          setTimeout(() => {
+            setScreen("win");
+            playWinSound();
+          }, 1500);
+        }
+      }
+
+      // Expire combo
+      const cs = comboRef.current;
+      if (cs.activeComboId && cs.activeUntil <= tickNow) {
+        const newCs = { ...cs, activeComboId: null, activeUntil: 0 };
+        setComboState(newCs);
+        comboRef.current = newCs;
+      }
     }, GAME_TICK_MS);
 
     return () => window.clearInterval(tick);
-  }, []);
+  }, [applyDamageInTick, areaStartTime, areaDamageTaken]);
 
   const effectiveActivePower = useMemo(() => {
     if (!activePower) return null;
@@ -453,6 +513,16 @@ export default function Home() {
     setGameEvents([]);
     setMinionStates([]);
     minionStatesRef.current = [];
+    setCollectedHealthPickups(new Set());
+    setBossState(null);
+    bossRef.current = null;
+    setProjectiles([]);
+    projectilesRef.current = [];
+    setComboState({ activeComboId: null, activeUntil: 0, lastActivations: [] });
+    comboRef.current = { activeComboId: null, activeUntil: 0, lastActivations: [] };
+    setAreaScores({});
+    setAreaStartTime(0);
+    setAreaDamageTaken(0);
     setStatusMessage("Welcome to Pixie. Gather petals and clear each area to get home.");
   };
 
@@ -466,6 +536,8 @@ export default function Home() {
     setNextDamageAt(0);
     setGameEvents([]);
     initMinionsForArea("flower-forest");
+    setAreaStartTime(Date.now());
+    setAreaDamageTaken(0);
     setStatusMessage(`${fairy.name} is ready. Move with arrows/WASD and press Space to dash.`);
   };
 
@@ -482,14 +554,12 @@ export default function Home() {
       setStatusMessage(`${powerName} is recharging (${secondsLeft(resolved.rechargeUntil, now)}s left).`);
       return;
     }
-
     if (resolved.activeUntil && resolved.activeUntil > now) {
       setStatusMessage(`${powerName} is already active.`);
       return;
     }
-
     if (resolved.energy <= 0) {
-      setStatusMessage(`${powerName} is empty. Start recharge to restore it.`);
+      setStatusMessage(`${powerName} is empty. Tap to recharge.`);
       return;
     }
 
@@ -509,7 +579,45 @@ export default function Home() {
     });
 
     setActivePower(powerId);
-    setStatusMessage(`${powerName} activated for ${POWER_CONFIG.activeMs / 1000}s! Run through obstacles now.`);
+
+    // Combo detection
+    const comboResult = detectCombo(comboState, powerId, Date.now());
+    setComboState(comboResult.state);
+    comboRef.current = comboResult.state;
+
+    if (comboResult.combo) {
+      playComboSound();
+      pushEvent("combo", comboResult.combo.name, "#ffd700");
+
+      // Apply combo effects
+      if (comboResult.combo.effectType === "heal") {
+        playHealSound();
+        setPlayerHealth((h) => {
+          const newH = Math.min(MAX_HEALTH, h + 1);
+          playerHealthRef.current = newH;
+          return newH;
+        });
+        pushEvent("heal", "+1 HP", "#39ff14");
+        setStatusMessage(`${comboResult.combo.name}! Healed 1 HP.`);
+      } else if (comboResult.combo.effectType === "burst" && bossRef.current && bossRef.current.phase !== "defeated") {
+        // Steam Burst damages boss from range if close
+        if (manhattan(playerPosition, bossRef.current.position) <= 4) {
+          const dmgResult = { ...bossRef.current, health: Math.max(0, bossRef.current.health - 1), lastDamagedAt: Date.now() };
+          if (dmgResult.health <= 0) dmgResult.phase = "defeated";
+          setBossState(dmgResult);
+          bossRef.current = dmgResult;
+          playBossHitSound();
+          pushEvent("boss_hit", "Burst -1", "#ffd700");
+          setStatusMessage(`${comboResult.combo.name}! The witch takes damage!`);
+        } else {
+          setStatusMessage(`${comboResult.combo.name}! But the witch is too far.`);
+        }
+      } else {
+        setStatusMessage(`${comboResult.combo.name} activated!`);
+      }
+    } else {
+      setStatusMessage(`${powerName} activated for ${POWER_CONFIG.activeMs / 1000}s!`);
+    }
   };
 
   const handleStartRecharge = (powerId: PowerId) => {
@@ -517,33 +625,20 @@ export default function Home() {
       setStatusMessage("You can only recharge collected petals.");
       return;
     }
-
     const resolved = resolvePowerState(powers[powerId], now);
     const powerName = POWERS.find((entry) => entry.id === powerId)?.label ?? "Power";
 
-    if (resolved.energy > 0) {
-      setStatusMessage(`${powerName} still has energy.`);
-      return;
-    }
-
-    if (resolved.rechargeUntil && resolved.rechargeUntil > now) {
-      setStatusMessage(`${powerName} is already recharging.`);
-      return;
-    }
+    if (resolved.energy > 0) { setStatusMessage(`${powerName} still has energy.`); return; }
+    if (resolved.rechargeUntil && resolved.rechargeUntil > now) { setStatusMessage(`${powerName} is already recharging.`); return; }
 
     playRechargeStartSound();
-
     setPowers((previous) => {
       const current = resolvePowerState(previous[powerId], now);
       return {
         ...previous,
-        [powerId]: {
-          ...current,
-          rechargeUntil: Date.now() + POWER_CONFIG.rechargeMs,
-        },
+        [powerId]: { ...current, rechargeUntil: Date.now() + POWER_CONFIG.rechargeMs },
       };
     });
-
     setStatusMessage(`${powerName} recharging (${POWER_CONFIG.rechargeMs / 1000}s).`);
   };
 
@@ -551,12 +646,16 @@ export default function Home() {
     (messagePrefix: string, areaId: AreaId) => {
       const hitTime = Date.now();
       if (hitTime < nextDamageAt) return false;
+      // Check combo shield
+      if (comboRef.current.activeComboId === "frost-shield" && comboRef.current.activeUntil > hitTime) return false;
 
       const respawnWorld = WORLD_MAP[areaId];
       const updatedHealth = Math.max(0, playerHealth - 1);
       setNextDamageAt(hitTime + MINION_HIT_COOLDOWN_MS);
       setPlayerPosition(respawnWorld.start);
       setPlayerHealth(updatedHealth);
+      playerHealthRef.current = updatedHealth;
+      setAreaDamageTaken((d) => d + 1);
 
       playDamageSound();
       triggerDamageFlash();
@@ -569,7 +668,6 @@ export default function Home() {
       } else {
         setStatusMessage(`${messagePrefix} (${updatedHealth}/${MAX_HEALTH})`);
       }
-
       return true;
     },
     [nextDamageAt, playerHealth, triggerDamageFlash, pushEvent],
@@ -578,13 +676,13 @@ export default function Home() {
   const handleMove = useCallback(
     (direction: Direction, steps = 1, fromDash = false) => {
       if (screen !== "playing") return;
-
       setLastMoveDirection(direction);
 
       let workingAreaIndex = areaIndex;
       let workingPosition = { ...playerPosition };
       const workingCollected = new Set(collectedPetals);
       const workingCleared = new Set(obstaclesCleared);
+      const workingHealthPickups = new Set(collectedHealthPickups);
       const newlyCollected: PowerId[] = [];
       const newlyCleared: string[] = [];
       let message = "";
@@ -597,24 +695,17 @@ export default function Home() {
         const obstacleNodes = getResolvedObstacleNodes(currentArea.id);
 
         const delta =
-          direction === "up"
-            ? { x: 0, y: -1 }
-            : direction === "down"
-              ? { x: 0, y: 1 }
-              : direction === "left"
-                ? { x: -1, y: 0 }
+          direction === "up" ? { x: 0, y: -1 }
+            : direction === "down" ? { x: 0, y: 1 }
+              : direction === "left" ? { x: -1, y: 0 }
                 : { x: 1, y: 0 };
 
-        const target = {
-          x: workingPosition.x + delta.x,
-          y: workingPosition.y + delta.y,
-        };
+        const target = { x: workingPosition.x + delta.x, y: workingPosition.y + delta.y };
 
         if (target.x < 0 || target.x >= world.width || target.y < 0 || target.y >= world.height) {
           message = fromDash ? "Dash fizzled at the edge." : "Edge of the map.";
           break;
         }
-
         if (world.walls.some((wall) => isSamePoint(wall, target))) {
           message = fromDash ? "Dash blocked." : "Blocked.";
           break;
@@ -628,13 +719,9 @@ export default function Home() {
         if (blockingObstacle) {
           if (!effectiveActivePower || effectiveActivePower !== blockingObstacle.requiredPower) {
             const requiredLabel = POWERS.find((entry) => entry.id === blockingObstacle.requiredPower)?.label;
-            handleMinionHit(
-              `${blockingObstacle.minion} struck! Need ${requiredLabel}.`,
-              currentArea.id,
-            );
+            handleMinionHit(`${blockingObstacle.minion} struck! Need ${requiredLabel}.`, currentArea.id);
             return;
           }
-
           workingCleared.add(blockingObstacle.id);
           newlyCleared.push(blockingObstacle.name);
           message = `${blockingObstacle.name} shattered!`;
@@ -642,48 +729,64 @@ export default function Home() {
 
         workingPosition = target;
 
-        // Check minion collision on player move
+        // Minion collision
         const currentMinions = minionStatesRef.current;
-        const defs = getMinionsForArea(currentArea.id);
+        const mDefs = getMinionsForArea(currentArea.id);
         for (const ms of currentMinions) {
           if (ms.defeated || Date.now() < ms.stunnedUntil) continue;
           if (ms.position.x === target.x && ms.position.y === target.y) {
-            const def = defs.find((d) => d.id === ms.id);
+            const def = mDefs.find((d) => d.id === ms.id);
             if (effectiveActivePower && def?.requiredPower === effectiveActivePower) {
               ms.stunnedUntil = Date.now() + (def.stunDurationMs ?? 3000);
               message = `${def.name} stunned!`;
               pushEvent("clear", `${def.name} Stunned`, "#00d4ff");
             } else {
-              handleMinionHit(
-                `${def?.name ?? "Minion"} caught you!`,
-                currentArea.id,
-              );
+              handleMinionHit(`${def?.name ?? "Minion"} caught you!`, currentArea.id);
               return;
             }
           }
         }
 
-        // Check hazard tile on move
+        // Hazard collision
         const hazard = getHazardAt(world.hazards, target, Date.now());
         if (hazard) {
-          const immune = effectiveActivePower === hazard.immunePower;
-          if (!immune) {
-            const hazardNames: Record<string, string> = {
-              lava: "Lava", poison: "Poison", thorns: "Thorns", spikes: "Spikes",
-            };
-            handleMinionHit(
-              `${hazardNames[hazard.type]} hurt you!`,
-              currentArea.id,
-            );
+          if (effectiveActivePower !== hazard.immunePower) {
+            const names: Record<string, string> = { lava: "Lava", poison: "Poison", thorns: "Thorns", spikes: "Spikes" };
+            handleMinionHit(`${names[hazard.type]} hurt you!`, currentArea.id);
             return;
           }
         }
 
+        // Health pickup
+        const hpKey = `${currentArea.id}-${target.x},${target.y}`;
+        if (!workingHealthPickups.has(hpKey)) {
+          const pickup = world.healthPickups.find((p) => p.x === target.x && p.y === target.y);
+          if (pickup && playerHealth < MAX_HEALTH) {
+            workingHealthPickups.add(hpKey);
+            playHealSound();
+            setPlayerHealth((h) => { const n = Math.min(MAX_HEALTH, h + 1); playerHealthRef.current = n; return n; });
+            pushEvent("heal", "+1 HP", "#39ff14");
+            message = "Found a health pickup!";
+          }
+        }
+
+        // Boss damage check (adjacent to boss during vulnerability)
+        if (currentArea.id === "pixie-land" && bossRef.current) {
+          const dmgResult = checkBossDamage(bossRef.current, target, effectiveActivePower, Date.now());
+          if (dmgResult.damaged) {
+            setBossState(dmgResult.boss);
+            bossRef.current = dmgResult.boss;
+            playBossHitSound();
+            pushEvent("boss_hit", `-1 Witch (${dmgResult.boss.health}/${dmgResult.boss.maxHealth})`, "#ffd700");
+            message = `Hit the witch! (${dmgResult.boss.health} HP left)`;
+          }
+        }
+
+        // Petal collection
         const petalAtTile = currentArea.petals.find((powerId) => {
           const node = world.petalNodes[powerId];
           return isSamePoint(node, target);
         });
-
         if (petalAtTile && !workingCollected.has(petalAtTile)) {
           workingCollected.add(petalAtTile);
           newlyCollected.push(petalAtTile);
@@ -691,6 +794,7 @@ export default function Home() {
           message = `${label} Petal collected!`;
         }
 
+        // Back entry
         if (isSamePoint(world.backEntry, target) && workingAreaIndex > 0) {
           const previousArea = AREAS[workingAreaIndex - 1];
           const previousWorld = WORLD_MAP[previousArea.id];
@@ -701,12 +805,10 @@ export default function Home() {
           break;
         }
 
+        // Exit
         if (isSamePoint(world.exit, target)) {
           const uncleared = currentArea.obstacles.some((o) => !workingCleared.has(o.id));
-          if (uncleared) {
-            message = "Clear all obstacles first!";
-            break;
-          }
+          if (uncleared) { message = "Clear all obstacles first!"; break; }
 
           if (workingAreaIndex < AREAS.length - 1) {
             const nextArea = AREAS[workingAreaIndex + 1];
@@ -714,20 +816,26 @@ export default function Home() {
               message = "Need all four petals!";
               break;
             }
+            // Record score for current area
+            const elapsed = Date.now() - (areaStartTime || Date.now());
+            const thresholds = STAR_THRESHOLDS[currentArea.id];
+            if (thresholds) {
+              setAreaScores((prev) => ({
+                ...prev,
+                [currentArea.id]: {
+                  timeMs: elapsed,
+                  damageTaken: areaDamageTaken,
+                  stars: calculateStars(elapsed, areaDamageTaken, thresholds),
+                },
+              }));
+            }
 
-            const nextWorld = WORLD_MAP[nextArea.id];
             workingAreaIndex += 1;
-            workingPosition = nextWorld.start;
-            message = `Entered ${nextArea.name}.`;
+            workingPosition = WORLD_MAP[AREAS[workingAreaIndex].id].start;
+            message = `Entered ${AREAS[workingAreaIndex].name}.`;
             enteredNewArea = true;
             break;
           }
-        }
-
-        if (currentArea.id === "pixie-land" && isSamePoint(world.goal, target)) {
-          reachedWin = true;
-          message = "Pixie Land reached!";
-          break;
         }
       }
 
@@ -743,6 +851,7 @@ export default function Home() {
       playerPosRef.current = workingPosition;
       setCollectedPetals(workingCollected);
       setObstaclesCleared(workingCleared);
+      setCollectedHealthPickups(workingHealthPickups);
 
       if (newlyCollected.length > 0) {
         playCollectSound();
@@ -750,16 +859,11 @@ export default function Home() {
           const label = POWERS.find((entry) => entry.id === powerId)?.label;
           pushEvent("collect", `+1 ${label} Petal`, "#ffd700");
         }
-
         setPowers((previous) => {
           const next = { ...previous };
           for (const powerId of newlyCollected) {
             const resolved = resolvePowerState(next[powerId], now);
-            next[powerId] = {
-              ...resolved,
-              energy: resolved.maxEnergy,
-              rechargeUntil: null,
-            };
+            next[powerId] = { ...resolved, energy: resolved.maxEnergy, rechargeUntil: null };
           }
           return next;
         });
@@ -768,6 +872,22 @@ export default function Home() {
       if (enteredNewArea) {
         pushEvent("area", `${AREAS[workingAreaIndex].name}`, "#00d4ff");
         initMinionsForArea(AREAS[workingAreaIndex].id);
+        setAreaStartTime(Date.now());
+        setAreaDamageTaken(0);
+
+        // Initialize boss for Pixie Land
+        if (AREAS[workingAreaIndex].id === "pixie-land") {
+          const bs = createInitialBossState(Date.now());
+          setBossState(bs);
+          bossRef.current = bs;
+          setProjectiles([]);
+          projectilesRef.current = [];
+        } else {
+          setBossState(null);
+          bossRef.current = null;
+          setProjectiles([]);
+          projectilesRef.current = [];
+        }
       }
 
       if (reachedWin) {
@@ -782,28 +902,20 @@ export default function Home() {
       }
     },
     [
-      areaIndex,
-      collectedPetals,
-      effectiveActivePower,
-      handleMinionHit,
-      initMinionsForArea,
-      now,
-      obstaclesCleared,
-      playerPosition,
-      pushEvent,
-      screen,
+      areaIndex, areaStartTime, areaDamageTaken, collectedHealthPickups,
+      collectedPetals, effectiveActivePower, handleMinionHit,
+      initMinionsForArea, now, obstaclesCleared, playerHealth,
+      playerPosition, pushEvent, screen,
     ],
   );
 
   const handleDash = useCallback(() => {
     if (screen !== "playing") return;
-
     const currentTime = Date.now();
     if (currentTime < dashReadyAt) {
       setStatusMessage(`Dash recharging (${secondsLeft(dashReadyAt, currentTime)}s).`);
       return;
     }
-
     playDashSound();
     setDashReadyAt(currentTime + DASH_COOLDOWN_MS);
     handleMove(lastMoveDirection, 2, true);
@@ -811,7 +923,6 @@ export default function Home() {
 
   useEffect(() => {
     if (screen !== "playing") return;
-
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
       if (event.key === "ArrowUp" || key === "w") { event.preventDefault(); handleMove("up"); }
@@ -820,7 +931,6 @@ export default function Home() {
       if (event.key === "ArrowRight" || key === "d") { event.preventDefault(); handleMove("right"); }
       if (event.code === "Space") { event.preventDefault(); handleDash(); }
     };
-
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [handleDash, handleMove, screen]);
@@ -870,13 +980,16 @@ export default function Home() {
             gameEvents={gameEvents}
             damageFlash={damageFlash}
             minionStates={minionStates}
+            bossState={bossState}
+            projectiles={projectiles}
+            comboState={comboState}
           />
         </div>
       )}
 
       {screen === "win" && (
         <div key="win" className="animate-screen-enter">
-          <WinScreen onPlayAgain={resetGame} />
+          <WinScreen onPlayAgain={resetGame} areaScores={areaScores} />
         </div>
       )}
 
