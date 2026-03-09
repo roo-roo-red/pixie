@@ -125,6 +125,9 @@ export function GameplayScreen({
           obstaclesCleared={obstaclesCleared}
           collectedPetals={collectedPetals}
           onMove={onMove}
+          playerHealth={playerHealth}
+          isDashing={dashSecondsLeft > 0}
+          lastMoveDirection={lastMoveDirection}
         />
       </div>
 
